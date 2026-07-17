@@ -1,0 +1,67 @@
+services:
+  server:
+    build:
+      context: .
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: INFO
+      DATABASE_URL: postgresql+psycopg://samslab:samslab@postgres:5432/samslab
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: samslab
+      VICTORIA_METRICS_URL: http://victoriametrics:8428
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      victoriametrics:
+        condition: service_started
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: samslab
+      POSTGRES_USER: samslab
+      POSTGRES_PASSWORD: samslab
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U samslab -d samslab"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.107.0
+    command: ["-storageDataPath=/storage"]
+    volumes:
+      - victoria_metrics_data:/storage
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    ports:
+      - "3000:3000"
+    depends_on:
+      - victoriametrics
+    volumes:
+      - grafana_data:/var/lib/grafana
+
+  minio:
+    image: minio/minio:RELEASE.2025-01-20T14-49-07Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+volumes:
+  postgres_data:
+  victoria_metrics_data:
+  grafana_data:
+  minio_data:

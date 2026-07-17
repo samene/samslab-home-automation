@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "samslab-shared"
+version = "0.1.0"
+description = "Shared protocol and cross-process contracts for Sam's Lab (server + agent)."
+requires-python = ">=3.13"
+dependencies = [
+  "pydantic>=2.9,<3",
+]
+
+# This pyproject.toml lives inside shared/ itself (not a parent directory),
+# so the "shared" package maps to ".", the directory this file is in.
+[tool.setuptools]
+packages = ["shared", "shared.protocol"]
+
+[tool.setuptools.package-dir]
+shared = "."

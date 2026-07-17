@@ -1,0 +1,85 @@
+"""The one composition root: builds every subsystem and wires them into an ``Agent``.
+
+Every dependency is constructed here and passed in — no subsystem reaches for
+a global or constructs its own collaborators.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from app.commands.builtin import register_builtin_handlers
+from app.commands.context import CommandServices
+from app.commands.dispatcher import CommandDispatcher
+from app.commands.events import CommandEventBus
+from app.commands.executor import CommandExecutor
+from app.commands.registry import CommandRegistry
+from app.config.settings import AgentSettings
+from app.connection.manager import ConnectionManager
+from app.dispatcher.dispatcher import MessageDispatcher
+from app.health.service import HealthService
+from app.lifecycle.orchestrator import Agent
+from app.plugins.camera.handlers import register_camera_handlers
+from app.plugins.camera.plugin import CameraPlugin
+from app.plugins.camera.service import CameraService
+from app.plugins.registry import PluginManager
+from app.services.session import SessionState
+from app.state.machine import StateMachine
+from app.utils.version import AGENT_VERSION
+
+
+def build_agent(settings: AgentSettings, *, plugin_manager: PluginManager | None = None) -> Agent:
+    """Compose a ready-to-run ``Agent`` from ``settings``."""
+    state_machine = StateMachine()
+    session = SessionState()
+    dispatcher = MessageDispatcher()
+    connection_manager = ConnectionManager(
+        settings=settings, state_machine=state_machine, session=session
+    )
+    plugins = plugin_manager or PluginManager()
+    camera_service = CameraService(settings)
+    plugins.register(CameraPlugin(camera_service))
+    health_service = HealthService(settings=settings, session=session, plugin_manager=plugins)
+
+    registry = CommandRegistry()
+    register_builtin_handlers(registry)
+    register_camera_handlers(registry)
+    command_dispatcher = CommandDispatcher(
+        registry=registry,
+        executor=CommandExecutor(),
+        event_bus=CommandEventBus(),
+        settings=settings,
+        services=CommandServices(
+            plugin_manager=plugins,
+            health_service=health_service,
+            registry=registry,
+            agent_started_at=datetime.now(UTC),
+            camera_service=camera_service,
+        ),
+        send=connection_manager.send,
+        agent_version=AGENT_VERSION,
+    )
+
+    return Agent(
+        settings=settings,
+        state_machine=state_machine,
+        session=session,
+        dispatcher=dispatcher,
+        connection_manager=connection_manager,
+        plugin_manager=plugins,
+        command_dispatcher=command_dispatcher,
+    )
+
+
+def build_health_service(
+    settings: AgentSettings,
+    *,
+    session: SessionState | None = None,
+    plugin_manager: PluginManager | None = None,
+) -> HealthService:
+    """Compose a standalone ``HealthService`` for a one-shot check (e.g. the CLI's ``health``)."""
+    return HealthService(
+        settings=settings,
+        session=session or SessionState(),
+        plugin_manager=plugin_manager or PluginManager(),
+    )

@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1
+#
+# Production image for the FastAPI backend. Multi-stage: a builder stage
+# compiles the runtime dependency set into a venv (so binary wheels like
+# psycopg[binary] never need a compiler in the final image), and the final
+# stage copies only that venv plus application source — no pip cache, no
+# build tools, no dev/test dependencies.
+#
+# Build from the REPO ROOT so both `server/` and `shared/` are in context:
+#   docker build -f deployment/docker/Dockerfile.backend -t samslab-backend:TAG .
+
+ARG PYTHON_VERSION=3.13-slim
+
+# --- builder ---------------------------------------------------------------
+FROM python:${PYTHON_VERSION} AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+
+# Only the files pip needs to resolve the base (non-dev) dependency set.
+COPY pyproject.toml README.md ./
+COPY server ./server
+COPY shared ./shared
+
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir .
+
+# --- runtime -----------------------------------------------------------------
+FROM python:${PYTHON_VERSION} AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH=/app/server
+
+# Fixed UID/GID so the compose file and host-side volume permissions (if any)
+# never depend on build-time allocation order.
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN groupadd --gid "${APP_GID}" samslab \
+    && useradd --uid "${APP_UID}" --gid "${APP_GID}" --no-create-home --shell /usr/sbin/nologin samslab
+
+COPY --from=builder /opt/venv /opt/venv
+WORKDIR /app
+COPY server ./server
+COPY shared ./shared
+COPY alembic.ini ./alembic.ini
+COPY alembic ./alembic
+COPY deployment/docker/healthcheck.sh /usr/local/bin/healthcheck.sh
+RUN chmod +x /usr/local/bin/healthcheck.sh \
+    && chown -R samslab:samslab /app
+
+USER samslab:samslab
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD ["/usr/local/bin/healthcheck.sh", "http://127.0.0.1:8000/health"]
+
+# No shell form: keeps the container's PID 1 as uvicorn itself, so it
+# receives SIGTERM directly and `docker stop` shuts it down promptly.
+CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

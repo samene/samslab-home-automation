@@ -1,0 +1,78 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "samslab-agent"
+version = "0.1.0"
+description = "Raspberry Pi edge agent for Sam's Lab."
+requires-python = ">=3.13"
+dependencies = [
+  "httpx>=0.28,<1",
+  "prometheus-client>=0.20,<1",
+  "pydantic>=2.9,<3",
+  "pydantic-settings>=2.7,<3",
+  "pyjwt[crypto]>=2.9,<3",
+  "structlog>=24.4,<26",
+  "websockets>=13,<17",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.13,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "pytest-cov>=5,<7",
+  "ruff>=0.8,<1",
+]
+# Camera hardware access. Not a hard dependency: import is guarded at the call
+# site (app/plugins/camera/sources.py) so the rest of the agent, including its
+# test suite, runs fine on a machine without a camera or this extra installed.
+# Publishing to MediaMTX additionally requires a system `ffmpeg` binary, which
+# is not pip-installable — see docs/agent/CAMERA.md.
+camera = [
+  "opencv-python-headless>=4.9,<5",
+]
+
+[project.scripts]
+samslab-agent = "app.cli.main:main"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008", "E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "shared"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+files = ["app"]
+mypy_path = [".", ".."]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["structlog.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["cv2.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["picamera2.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["app/tests"]
+pythonpath = [".", ".."]
+addopts = ["-ra"]
+asyncio_mode = "auto"

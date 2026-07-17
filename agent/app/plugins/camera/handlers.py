@@ -1,0 +1,137 @@
+"""The three ``camera.*`` command handlers: start, stop, status.
+
+Stateless, exactly like the built-in ``system.*`` handlers — everything a
+handler needs arrives through ``CommandContext.services.camera_service``.
+``CameraService``'s own methods do blocking I/O (opening the camera, spawning
+ffmpeg, joining a thread), so every handler here hands off to a thread-pool
+executor rather than calling them directly on the event loop.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import functools
+from collections.abc import Mapping
+from typing import Any
+
+from app.commands.context import CommandContext
+from app.commands.handler import CommandHandler
+from app.commands.registry import CommandRegistry
+from app.plugins.camera.exceptions import CameraUnavailableError
+
+#: Starting the camera/ffmpeg can take longer than the default 30s on a slow Pi.
+_STREAM_START_TIMEOUT_SECONDS = 45.0
+
+
+class CameraStreamStartHandler(CommandHandler):
+    """Starts the live stream, or confirms it's already running."""
+
+    @property
+    def command_type(self) -> str:
+        return "camera.stream.start"
+
+    async def validate(self, context: CommandContext, arguments: Mapping[str, Any]) -> None:
+        """No arguments are required; resolution/fps come from agent configuration.
+
+        An optional ``mediamtx_publish_token`` may be present — a MediaMTX
+        JWT minted server-side, required once a deployment sets MediaMTX's
+        authMethod to ``jwt`` (see ``CameraService.start``).
+        """
+
+    def timeout(self) -> float:
+        return _STREAM_START_TIMEOUT_SECONDS
+
+    async def execute(
+        self, context: CommandContext, arguments: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        camera_service = context.services.camera_service
+        publish_token = arguments.get("mediamtx_publish_token")
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(
+                None, functools.partial(camera_service.start, publish_token=publish_token)
+            )
+        except CameraUnavailableError as error:
+            context.logger.warning(
+                "camera_stream_start_failed",
+                command_id=str(context.command_id),
+                error=str(error),
+            )
+            raise
+        context.logger.info(
+            "camera_stream_started",
+            command_id=str(context.command_id),
+            stream_name=result["stream_name"],
+            publish_url=camera_service.redacted_publish_url(),
+            playback_url=result["playback_url"],
+            resolution=result["resolution"],
+            fps=result["fps"],
+        )
+        return {
+            "stream_name": result["stream_name"],
+            "playback_url": result["playback_url"],
+            "resolution": result["resolution"],
+            "fps": result["fps"],
+            "started_at": result["started_at"],
+        }
+
+
+class CameraStreamStopHandler(CommandHandler):
+    """Stops the live stream, or confirms it's already stopped."""
+
+    @property
+    def command_type(self) -> str:
+        return "camera.stream.stop"
+
+    async def validate(self, context: CommandContext, arguments: Mapping[str, Any]) -> None:
+        """No arguments are required."""
+
+    async def execute(
+        self, context: CommandContext, arguments: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        camera_service = context.services.camera_service
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, camera_service.stop)
+        context.logger.info(
+            "camera_stream_stopped",
+            command_id=str(context.command_id),
+            stream_name=camera_service.status()["stream_name"],
+            duration=result["duration"],
+            frames_sent=result["frames_sent"],
+        )
+        return {
+            "duration": result["duration"],
+            "frames_sent": result["frames_sent"],
+            "stopped_at": result["stopped_at"],
+        }
+
+
+class CameraStatusHandler(CommandHandler):
+    """Reports the live stream's current state without changing it."""
+
+    @property
+    def command_type(self) -> str:
+        return "camera.status"
+
+    async def validate(self, context: CommandContext, arguments: Mapping[str, Any]) -> None:
+        """No arguments are required."""
+
+    async def execute(
+        self, context: CommandContext, arguments: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        camera_service = context.services.camera_service
+        loop = asyncio.get_running_loop()
+        result = await loop.run_in_executor(None, camera_service.status)
+        return {
+            "running": result["running"],
+            "uptime": result["uptime_seconds"],
+            "stream_name": result["stream_name"],
+            "playback_url": result["playback_url"],
+        }
+
+
+def register_camera_handlers(registry: CommandRegistry) -> None:
+    """Register every ``camera.*`` handler onto ``registry``."""
+    registry.register(CameraStreamStartHandler())
+    registry.register(CameraStreamStopHandler())
+    registry.register(CameraStatusHandler())

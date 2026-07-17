@@ -1,0 +1,27 @@
+# Keeps both deployment/docker/Dockerfile.* build contexts small — both
+# build from the repo root so `server/`, `shared/`, `alembic/`, and
+# `frontend/` are all in context together. Neither Dockerfile uses a
+# wildcard `COPY . .`, so this only affects context-transfer speed, not
+# what ends up in an image layer — kept deliberately conservative so it
+# never excludes a path either Dockerfile explicitly COPYs.
+
+.git
+.github
+
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+.venv
+venv
+
+frontend/node_modules
+frontend/dist
+frontend/coverage
+
+.env
+.env.*

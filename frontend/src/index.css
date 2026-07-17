@@ -1,0 +1,237 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Light is the default, premium "mission control" look (no toggle needed for
+ * first paint); ".dark" is the opt-in override still available from Settings.
+ */
+:root {
+  --background: oklch(0.98 0.006 250);
+  --foreground: oklch(0.22 0.02 258);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.22 0.02 258);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.22 0.02 258);
+  --primary: oklch(0.58 0.19 255);
+  --primary-foreground: oklch(0.98 0.006 255);
+  --secondary: oklch(0.95 0.01 258);
+  --secondary-foreground: oklch(0.28 0.02 258);
+  --muted: oklch(0.96 0.008 258);
+  --muted-foreground: oklch(0.5 0.016 258);
+  --accent: oklch(0.94 0.02 255);
+  --accent-foreground: oklch(0.3 0.03 255);
+  --destructive: oklch(0.58 0.22 25);
+  --destructive-foreground: oklch(0.98 0.01 25);
+  --success: oklch(0.62 0.15 152);
+  --success-foreground: oklch(0.98 0.02 152);
+  --warning: oklch(0.72 0.16 70);
+  --warning-foreground: oklch(0.22 0.03 70);
+  --border: oklch(0.91 0.008 258);
+  --input: oklch(0.91 0.008 258);
+  --ring: oklch(0.58 0.19 255);
+  --radius: 1rem;
+
+  /* Semantic domain colors — used consistently across the app. */
+  --color-camera: oklch(0.58 0.19 255);
+  --color-camera-foreground: oklch(0.98 0.01 255);
+  --color-water: oklch(0.63 0.15 155);
+  --color-water-foreground: oklch(0.98 0.02 155);
+  --color-command: oklch(0.72 0.17 55);
+  --color-command-foreground: oklch(0.2 0.03 55);
+  --color-device: oklch(0.56 0.2 300);
+  --color-device-foreground: oklch(0.98 0.01 300);
+  --color-error: oklch(0.58 0.22 25);
+  --color-error-foreground: oklch(0.98 0.01 25);
+  --color-history: oklch(0.55 0.014 258);
+  --color-history-foreground: oklch(0.98 0.006 258);
+}
+
+.dark {
+  --background: oklch(0.16 0.014 258);
+  --foreground: oklch(0.93 0.005 258);
+  --card: oklch(0.2 0.014 258);
+  --card-foreground: oklch(0.93 0.005 258);
+  --popover: oklch(0.2 0.014 258);
+  --popover-foreground: oklch(0.93 0.005 258);
+  --primary: oklch(0.7 0.14 224);
+  --primary-foreground: oklch(0.15 0.03 224);
+  --secondary: oklch(0.28 0.014 258);
+  --secondary-foreground: oklch(0.93 0.005 258);
+  --muted: oklch(0.25 0.014 258);
+  --muted-foreground: oklch(0.65 0.014 258);
+  --accent: oklch(0.28 0.014 258);
+  --accent-foreground: oklch(0.93 0.005 258);
+  --destructive: oklch(0.62 0.2 25);
+  --destructive-foreground: oklch(0.97 0.01 25);
+  --success: oklch(0.7 0.15 150);
+  --success-foreground: oklch(0.15 0.03 150);
+  --warning: oklch(0.78 0.14 80);
+  --warning-foreground: oklch(0.2 0.03 80);
+  --border: oklch(0.3 0.014 258);
+  --input: oklch(0.3 0.014 258);
+  --ring: oklch(0.7 0.14 224);
+
+  --color-camera: oklch(0.72 0.14 250);
+  --color-camera-foreground: oklch(0.15 0.03 250);
+  --color-water: oklch(0.72 0.14 155);
+  --color-water-foreground: oklch(0.15 0.03 155);
+  --color-command: oklch(0.75 0.14 60);
+  --color-command-foreground: oklch(0.18 0.03 60);
+  --color-device: oklch(0.72 0.16 300);
+  --color-device-foreground: oklch(0.15 0.03 300);
+  --color-error: oklch(0.62 0.2 25);
+  --color-error-foreground: oklch(0.97 0.01 25);
+  --color-history: oklch(0.72 0.012 258);
+  --color-history-foreground: oklch(0.15 0.01 258);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-camera: var(--color-camera);
+  --color-camera-foreground: var(--color-camera-foreground);
+  --color-water: var(--color-water);
+  --color-water-foreground: var(--color-water-foreground);
+  --color-command: var(--color-command);
+  --color-command-foreground: var(--color-command-foreground);
+  --color-device: var(--color-device);
+  --color-device-foreground: var(--color-device-foreground);
+  --color-error: var(--color-error);
+  --color-error-foreground: var(--color-error-foreground);
+  --color-history: var(--color-history);
+  --color-history-foreground: var(--color-history-foreground);
+  --radius-sm: calc(var(--radius) - 10px);
+  --radius-md: calc(var(--radius) - 6px);
+  --radius-lg: calc(var(--radius) - 2px);
+  --radius-xl: var(--radius);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --animate-fade-in: fade-in 0.4s ease-out;
+  --animate-scale-in: scale-in 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-gradient-pan: gradient-pan 18s ease infinite;
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes scale-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+
+  @keyframes gradient-pan {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
+  }
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family:
+    "Inter",
+    system-ui,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A soft, barely-there gradient wash behind the whole app — not a solid flat
+   background, but subtle enough to stay out of the way of card content. */
+.app-gradient-backdrop {
+  background-image:
+    radial-gradient(circle at 8% -10%, oklch(0.9 0.05 255 / 45%), transparent 45%),
+    radial-gradient(circle at 100% 0%, oklch(0.92 0.05 155 / 35%), transparent 40%),
+    radial-gradient(circle at 50% 100%, oklch(0.94 0.04 300 / 25%), transparent 45%);
+}
+
+.dark .app-gradient-backdrop {
+  background-image:
+    radial-gradient(circle at 8% -10%, oklch(0.3 0.05 255 / 35%), transparent 45%),
+    radial-gradient(circle at 100% 0%, oklch(0.3 0.05 155 / 25%), transparent 40%),
+    radial-gradient(circle at 50% 100%, oklch(0.3 0.04 300 / 20%), transparent 45%);
+}
+
+.login-gradient-backdrop {
+  background-image: linear-gradient(
+    120deg,
+    oklch(0.94 0.05 255),
+    oklch(0.97 0.03 200),
+    oklch(0.94 0.05 155),
+    oklch(0.95 0.04 300)
+  );
+  background-size: 300% 300%;
+  animation: var(--animate-gradient-pan);
+}
+
+.dark .login-gradient-backdrop {
+  background-image: linear-gradient(
+    120deg,
+    oklch(0.2 0.05 255),
+    oklch(0.18 0.03 200),
+    oklch(0.2 0.05 155),
+    oklch(0.19 0.04 300)
+  );
+  background-size: 300% 300%;
+}

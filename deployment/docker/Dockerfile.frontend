@@ -1,0 +1,47 @@
+# syntax=docker/dockerfile:1
+#
+# Production image for the operator console. Multi-stage: a Node build stage
+# produces a static Vite bundle, and the final stage serves it with
+# nginx-unprivileged (non-root by default, unlike stock nginx) — no Node,
+# npm cache, or source files ship in the final image.
+#
+# Build from the REPO ROOT so `frontend/` is in context:
+#   docker build -f deployment/docker/Dockerfile.frontend \
+#     --build-arg VITE_API_BASE_URL=https://samslab.site/api \
+#     -t samslab-frontend:TAG .
+
+ARG NODE_VERSION=22-alpine
+ARG NGINX_VERSION=1.27-alpine
+
+# --- builder ---------------------------------------------------------------
+FROM node:${NODE_VERSION} AS builder
+
+WORKDIR /build
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend ./
+
+# Vite inlines VITE_* variables into the bundle at build time, not runtime —
+# this must be the backend's real public URL for the environment being built.
+ARG VITE_API_BASE_URL=http://localhost:8000
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
+RUN npm run build
+
+# --- runtime -----------------------------------------------------------------
+FROM nginxinc/nginx-unprivileged:${NGINX_VERSION} AS runtime
+
+COPY deployment/docker/nginx.conf /etc/nginx/nginx.conf
+COPY --from=builder /build/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:80/healthz || exit 1
+
+# nginx-unprivileged's own entrypoint already runs as the non-root `nginx`
+# user (uid 101); binding port 80 as that user needs CAP_NET_BIND_SERVICE,
+# granted in docker-compose.yml rather than here (Dockerfiles can't grant
+# Linux capabilities — that's a runtime, not a build-time, concern).

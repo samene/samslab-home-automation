@@ -1,0 +1,77 @@
+# Sample Caddyfile for Sam's Lab's hybrid deployment (see
+# docs/architecture/DEPLOYMENT.md). Caddy is the only internet-facing
+# process on the VM — it terminates TLS and reverse-proxies to the two
+# Dockerized application containers, both bound to 127.0.0.1 only
+# (deployment/docker/docker-compose.yml):
+#
+#   frontend (nginx)    127.0.0.1:8080
+#   backend  (FastAPI)  127.0.0.1:8000  — including the /ws WebSocket
+#                                         gateway the Raspberry Pi agent
+#                                         connects to
+#
+# Install:
+#   sudo cp deployment/caddy/Caddyfile /etc/caddy/Caddyfile
+#   sudo systemctl reload caddy
+#
+# Caddy provisions and renews its own TLS certificate automatically for any
+# public domain listed below — no certbot or manual certificate management
+# needed. DNS for samslab.site must already point at this VM.
+#
+# MediaMTX itself (media.samslab.site, RTSP publish on :8554, browser
+# playback on :8889) is a separate native service on its own host and is
+# never proxied by this Caddyfile — the agent publishes to it directly, and
+# the browser loads the playback_url the backend returns directly too (see
+# "The browser never connects to the Raspberry Pi" in
+# docs/architecture/ARCHITECTURE.md). Only samslab.site's own traffic
+# (frontend + backend REST/WS) goes through Caddy.
+
+samslab.site {
+    encode gzip
+
+    # The Raspberry Pi agent's outbound WebSocket connection. Caddy detects
+    # the Upgrade header automatically — no extra directive is needed beyond
+    # a normal reverse_proxy for WebSocket traffic to work.
+    handle /ws {
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    # Backend REST API. The frontend is built with VITE_API_BASE_URL pointing
+    # at https://samslab.site/api (see deployment/docker/.env.example)
+    # — handle_path strips the /api prefix before forwarding, since the
+    # backend's own routes (/auth, /devices, /commands, /camera, /dispatcher,
+    # /health, /ready, /live, ...) carry no /api prefix themselves. A direct
+    # health check from this VM is therefore reachable at
+    # https://samslab.site/api/health.
+    handle_path /api/* {
+        reverse_proxy 127.0.0.1:8000
+    }
+
+    # Everything else: the operator console (the frontend SPA). Client-side
+    # routing (React Router) is handled by the frontend container's own
+    # nginx config (deployment/docker/nginx.conf), not here.
+    handle {
+        reverse_proxy 127.0.0.1:8080
+    }
+
+    log {
+        output file /var/log/caddy/samslab-access.log
+        format json
+    }
+}
+
+# --- Local/staging testing without a public domain or TLS certificate ------
+# Uncomment and adjust instead of the block above; Caddy skips automatic
+# HTTPS for a plain "http://" or bare-port site address.
+#
+# http://localhost:8443 {
+#     encode gzip
+#     handle /ws {
+#         reverse_proxy 127.0.0.1:8000
+#     }
+#     handle_path /api/* {
+#         reverse_proxy 127.0.0.1:8000
+#     }
+#     handle {
+#         reverse_proxy 127.0.0.1:8080
+#     }
+# }

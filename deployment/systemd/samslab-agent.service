@@ -1,0 +1,48 @@
+[Unit]
+Description=Sam's Lab Raspberry Pi Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=samslab-agent
+Group=samslab-agent
+
+# The agent's own AgentSettings defaults match these systemd-managed directories
+# (LOCAL_DATA_DIRECTORY, CACHE_DIRECTORY); StateDirectory/CacheDirectory create
+# them with the right ownership before the process starts. ensure_directories()
+# in the CLI's start command creates TMP_DIRECTORY as a fallback for the same
+# reason, inside this unit's own PrivateTmp namespace.
+StateDirectory=samslab-agent
+CacheDirectory=samslab-agent
+WorkingDirectory=/var/lib/samslab-agent
+
+# Device/server configuration lives outside the unit file itself.
+EnvironmentFile=-/etc/samslab-agent/agent.env
+
+ExecStart=/opt/samslab-agent/.venv/bin/samslab-agent start
+
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=samslab-agent
+
+# Hardening. The camera plugin needs /dev/video*, /dev/media*, and
+# /dev/dma_heap/* (via libcamera/picamera2 for a CSI camera module) — none of
+# that is restricted here (no PrivateDevices=/DeviceAllow=), since systemd
+# device sandboxing isn't the right layer for this; instead grant access the
+# normal Unix way, by adding this unit's User= to the group that owns those
+# device nodes (usually "video" on Raspberry Pi OS — confirm with
+# `ls -l /dev/media0`), then `systemctl daemon-reload && systemctl restart`.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/samslab-agent /var/cache/samslab-agent
+SupplementaryGroups=video
+
+[Install]
+WantedBy=multi-user.target
+
