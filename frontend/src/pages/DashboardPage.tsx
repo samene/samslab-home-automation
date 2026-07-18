@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import { CameraPanel } from "@/components/dashboard/CameraPanel";
 import { ControlPanel } from "@/components/dashboard/ControlPanel";
 import { DeviceHeroCard } from "@/components/dashboard/DeviceHeroCard";
+import { QuickSnapshotCard } from "@/components/dashboard/QuickSnapshotCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
+import { RecentSnapshots } from "@/components/dashboard/RecentSnapshots";
 import { SystemStatusPanel } from "@/components/dashboard/SystemStatusPanel";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useStartCameraStream, useStopCameraStream } from "@/hooks/useCamera";
+import { useStartCameraStream, useStopCameraStream, useTakeSnapshot } from "@/hooks/useCamera";
 import { useCreateCommand, useCommands } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
 import type { CameraStatusDTO } from "@/types/api";
@@ -21,6 +23,7 @@ export function DashboardPage() {
   const createCommand = useCreateCommand();
   const startCameraStream = useStartCameraStream();
   const stopCameraStream = useStopCameraStream();
+  const takeSnapshot = useTakeSnapshot();
 
   const [pendingCommandType, setPendingCommandType] = useState<string | null>(null);
   const [cameraStatus, setCameraStatus] = useState<CameraStatusDTO | null>(null);
@@ -72,6 +75,7 @@ export function DashboardPage() {
             onStartWatering={() => setPendingCommandType(PUMP_START)}
             onStopWatering={() => setPendingCommandType(PUMP_STOP)}
           />
+          <QuickSnapshotCard hasDevice={Boolean(device)} />
         </div>
 
         <div className="min-h-64 lg:col-span-2 lg:col-start-2 lg:min-h-0">
@@ -82,6 +86,8 @@ export function DashboardPage() {
             isStopping={stopCameraStream.isPending}
             onGoLive={() => void handleGoLive()}
             onStop={() => void handleStop()}
+            onTakeSnapshot={() => takeSnapshot.mutate()}
+            isTakingSnapshot={takeSnapshot.isPending}
           />
         </div>
 
@@ -98,6 +104,7 @@ export function DashboardPage() {
               <RecentActivity commands={commands} deviceNameById={deviceNameById} />
             )}
           </Card>
+          <RecentSnapshots />
           <SystemStatusPanel device={device} latestCommand={latestCommand} />
         </div>
       </div>

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.command_dto import CommandDetailDTO
 from app.application.dto.device_dto import CapabilityDTO, DeviceDTO
+from app.application.dto.snapshot_dto import SnapshotDTO, SnapshotPageDTO
 from app.application.events.bus import EventBus
 from app.application.events.domain_events import (
     CommandCompleted,
@@ -29,11 +31,14 @@ from app.application.exceptions import (
     DuplicateCapabilityError,
     InvalidCommandStateError,
     InvalidHeartbeatError,
+    SnapshotNotFoundError,
 )
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
 from app.application.services.health_service import HealthApplicationService
+from app.application.services.snapshot_service import SnapshotApplicationService
 from app.core.database import Database
+from app.core.s3_client import S3Client
 from app.domains.commands.exceptions import CommandNotFound
 from app.domains.commands.models import Command, CommandStatus
 from app.domains.commands.repository import CommandRepository
@@ -48,6 +53,10 @@ from app.domains.devices.schemas import (
     HeartbeatInput,
 )
 from app.domains.devices.service import DeviceService
+from app.domains.snapshots.exceptions import SnapshotNotFound
+from app.domains.snapshots.models import Snapshot
+from app.domains.snapshots.repository import SnapshotRepository
+from app.domains.snapshots.service import SnapshotService
 
 
 @pytest.fixture
@@ -565,6 +574,220 @@ async def test_command_service_expire_old_commands_proxies_to_domain(
     )
     expired_count = await command_app_service.expire_old_commands()
     assert expired_count == 0
+
+
+# --- SnapshotApplicationService --------------------------------------------------
+
+
+class FakeBotoClient:
+    """Hand-rolled double for the boto3 S3 client slice app.core.s3_client.S3Client calls."""
+
+    def __init__(
+        self, *, presigned_url: str = "https://s3.example/signed", fail_delete: bool = False
+    ) -> None:
+        self.presigned_url = presigned_url
+        self.fail_delete = fail_delete
+        self.presign_calls: list[dict[str, Any]] = []
+        self.delete_calls: list[dict[str, Any]] = []
+
+    def generate_presigned_url(
+        self, client_method: str, *, Params: dict[str, Any], ExpiresIn: int
+    ) -> str:
+        self.presign_calls.append(
+            {"client_method": client_method, "Params": Params, "ExpiresIn": ExpiresIn}
+        )
+        return self.presigned_url
+
+    def delete_object(self, **kwargs: Any) -> dict[str, Any]:
+        if self.fail_delete:
+            raise RuntimeError("s3 delete failed")
+        self.delete_calls.append(kwargs)
+        return {}
+
+
+@pytest.fixture
+async def seeded_snapshot(session: AsyncSession) -> Snapshot:
+    """Persist one snapshot, plus the device/command rows its foreign keys require."""
+    device = await DeviceService(DeviceRepository(session)).register_device(
+        DeviceCreate.model_validate(device_payload())
+    )
+    command = await CommandRepository(session).create(
+        Command(device_id=device.id, command_type="camera.snapshot", payload={})
+    )
+    snapshot_service = SnapshotService(SnapshotRepository(session))
+    return await snapshot_service.record_snapshot(
+        device_id=device.id,
+        command_id=command.id,
+        filename="snapshot.jpg",
+        bucket="samslab-snapshots",
+        original_object_key="originals/snapshot.jpg",
+        thumbnail_object_key="thumbnails/snapshot.jpg",
+        etag='"abc123"',
+        sha256="a" * 64,
+        width=1920,
+        height=1080,
+        size=204800,
+        captured_at=datetime.now(UTC),
+    )
+
+
+def _snapshot_app_service(
+    session: AsyncSession, *, s3_client: S3Client | None, ttl_seconds: float = 300.0
+) -> SnapshotApplicationService:
+    return SnapshotApplicationService(
+        SnapshotService(SnapshotRepository(session)),
+        s3_client=s3_client,
+        presigned_url_ttl_seconds=ttl_seconds,
+    )
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_get_snapshot_returns_dto_with_presigned_urls(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """get_snapshot mints one presigned URL per object key and never returns raw keys."""
+    fake = FakeBotoClient(presigned_url="https://s3.example/signed")
+    service = _snapshot_app_service(
+        session, s3_client=S3Client(client=fake, bucket="samslab-snapshots")
+    )
+
+    dto = await service.get_snapshot(seeded_snapshot.id)
+
+    assert isinstance(dto, SnapshotDTO)
+    assert dto.thumbnail_url == "https://s3.example/signed"
+    assert dto.image_url == "https://s3.example/signed"
+    assert {call["Params"]["Key"] for call in fake.presign_calls} == {
+        "thumbnails/snapshot.jpg",
+        "originals/snapshot.jpg",
+    }
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_presigned_urls_reflect_the_injected_ttl(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """The configured presigned_url_ttl_seconds reaches boto3's ExpiresIn unchanged."""
+    fake = FakeBotoClient()
+    service = _snapshot_app_service(
+        session, s3_client=S3Client(client=fake, bucket="b"), ttl_seconds=120.0
+    )
+
+    await service.get_snapshot(seeded_snapshot.id)
+
+    assert fake.presign_calls
+    assert all(call["ExpiresIn"] == 120 for call in fake.presign_calls)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_get_snapshot_urls_are_empty_when_s3_unconfigured(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """An unconfigured S3 adapter yields empty-string URLs rather than raising."""
+    service = _snapshot_app_service(session, s3_client=None)
+
+    dto = await service.get_snapshot(seeded_snapshot.id)
+
+    assert dto.thumbnail_url == ""
+    assert dto.image_url == ""
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_get_snapshot_translates_not_found(session: AsyncSession) -> None:
+    """A missing snapshot id raises the application's not-found error, not the domain's."""
+    service = _snapshot_app_service(session, s3_client=None)
+    with pytest.raises(SnapshotNotFoundError):
+        await service.get_snapshot(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_list_snapshots_returns_page_dto_with_urls(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """list_snapshots returns a bounded page of DTOs, each carrying fresh presigned URLs."""
+    fake = FakeBotoClient()
+    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+
+    page = await service.list_snapshots(device_id=None, offset=0, limit=10)
+
+    assert isinstance(page, SnapshotPageDTO)
+    assert page.total == 1
+    assert page.items[0].id == seeded_snapshot.id
+    assert page.items[0].thumbnail_url == fake.presigned_url
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_delete_snapshot_deletes_both_s3_objects_and_the_row(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """Deleting a snapshot removes both S3 objects and hard-deletes the metadata row."""
+    fake = FakeBotoClient()
+    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+
+    await service.delete_snapshot(seeded_snapshot.id)
+
+    assert {call["Key"] for call in fake.delete_calls} == {
+        "originals/snapshot.jpg",
+        "thumbnails/snapshot.jpg",
+    }
+    with pytest.raises(SnapshotNotFoundError):
+        await service.get_snapshot(seeded_snapshot.id)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_delete_snapshot_survives_an_s3_delete_failure(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """An S3 delete failure is swallowed (logged) and never blocks the row's deletion."""
+    fake = FakeBotoClient(fail_delete=True)
+    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+
+    await service.delete_snapshot(seeded_snapshot.id)
+
+    with pytest.raises(SnapshotNotFoundError):
+        await service.get_snapshot(seeded_snapshot.id)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_delete_snapshot_works_when_s3_is_unconfigured(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """No S3 adapter at all is likewise never a blocker for deleting the metadata row."""
+    service = _snapshot_app_service(session, s3_client=None)
+
+    await service.delete_snapshot(seeded_snapshot.id)
+
+    with pytest.raises(SnapshotNotFoundError):
+        await service.get_snapshot(seeded_snapshot.id)
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_delete_snapshot_translates_not_found(session: AsyncSession) -> None:
+    """Deleting a missing snapshot id raises the application's not-found error."""
+    service = _snapshot_app_service(session, s3_client=None)
+    with pytest.raises(SnapshotNotFoundError):
+        await service.delete_snapshot(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_delete_snapshot_translates_a_race_after_the_initial_lookup(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """delete_snapshot's own second try/except (post-S3-cleanup) is reached via a stubbed
+    domain service — the real domain delete_snapshot can't itself raise once get_snapshot
+    already found the row, so this proves the translation still fires if a future
+    concurrent-delete race ever does trigger it, mirroring _FailingCommandService above."""
+
+    class _FailingSnapshotService(SnapshotService):
+        async def delete_snapshot(self, snapshot_id: UUID) -> Snapshot:
+            raise SnapshotNotFound("simulated concurrent delete")
+
+    stub_service = SnapshotApplicationService(
+        _FailingSnapshotService(SnapshotRepository(session)),
+        s3_client=None,
+        presigned_url_ttl_seconds=300.0,
+    )
+    with pytest.raises(SnapshotNotFoundError):
+        await stub_service.delete_snapshot(seeded_snapshot.id)
 
 
 # --- HealthApplicationService --------------------------------------------------

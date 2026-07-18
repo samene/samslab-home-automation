@@ -10,7 +10,7 @@ import {
 import { CommandStatusBadge } from "@/components/shared/StatusBadge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCommand } from "@/hooks/useCommands";
-import { formatDuration, formatRelativeTime, formatTimestamp } from "@/lib/format";
+import { formatDuration, formatRelativeTime, formatTimestamp, friendlyCommandLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CommandDTO } from "@/types/api";
 
@@ -50,7 +50,9 @@ export function RecentActivity({ commands, deviceNameById }: RecentActivityProps
                   <Icon className="size-3.5" />
                 </span>
                 <span className="min-w-0 flex-1 text-left">
-                  <span className="block truncate text-xs font-medium">{command.command_type}</span>
+                  <span className="block truncate text-xs font-medium">
+                    {friendlyCommandLabel(command.command_type)}
+                  </span>
                   <span className="block truncate text-[11px] text-muted-foreground">
                     <span>{deviceNameById[command.device_id] ?? command.device_id}</span> ·{" "}
                     <span>{formatRelativeTime(command.created_at)}</span>

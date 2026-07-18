@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.application.dto.camera_dto import CameraStatusDTO, CameraStopDTO
+from app.application.dto.camera_dto import CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO
 from app.application.events.bus import EventBus
 from app.application.services.camera_service import CameraApplicationService
 from app.core.database import Database
@@ -43,6 +43,7 @@ def get_camera_application_service(
         stream_name=settings.camera_stream_name,
         command_timeout_seconds=settings.camera_command_timeout_seconds,
         command_poll_interval_seconds=settings.camera_command_poll_interval_seconds,
+        snapshot_command_timeout_seconds=settings.camera_snapshot_command_timeout_seconds,
     )
 
 
@@ -68,3 +69,15 @@ async def get_status(
 ) -> CameraStatusDTO:
     """Derive current stream state from the most recent start/stop commands."""
     return await service.get_status()
+
+
+@router.post(
+    "/snapshot",
+    response_model=CameraSnapshotDTO,
+    summary="Capture a high-resolution snapshot, independent of the live stream",
+)
+async def take_snapshot(
+    service: CameraApplicationService = Depends(get_camera_application_service),
+) -> CameraSnapshotDTO:
+    """Dispatch ``camera.snapshot`` and wait for it to complete and persist metadata."""
+    return await service.capture_snapshot()

@@ -4,8 +4,8 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as cameraApi from "@/lib/api/camera";
-import type { CameraStatusDTO, CameraStopDTO } from "@/types/api";
-import { useCameraStatus, useStartCameraStream, useStopCameraStream } from "./useCamera";
+import type { CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO } from "@/types/api";
+import { useCameraStatus, useStartCameraStream, useStopCameraStream, useTakeSnapshot } from "./useCamera";
 
 vi.mock("@/lib/api/camera");
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -27,6 +27,17 @@ const STOP_RESULT: CameraStopDTO = {
   duration_seconds: 12.5,
   frames_sent: 375,
   stopped_at: "2026-01-15T10:05:00Z",
+};
+
+const SNAPSHOT: CameraSnapshotDTO = {
+  id: "snap-1",
+  device_id: "device-1",
+  command_id: "cmd-1",
+  filename: "snap-1.jpg",
+  width: 1920,
+  height: 1080,
+  size: 204800,
+  captured_at: "2026-01-15T10:00:00Z",
 };
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -85,5 +96,27 @@ describe("useStopCameraStream", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(toast.success).toHaveBeenCalledWith("Camera stream stopped");
+  });
+});
+
+describe("useTakeSnapshot", () => {
+  it("captures a snapshot and shows a success toast", async () => {
+    vi.mocked(cameraApi.takeSnapshot).mockResolvedValue(SNAPSHOT);
+    const { result } = renderHook(() => useTakeSnapshot(), { wrapper });
+
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(toast.success).toHaveBeenCalledWith("Snapshot captured");
+  });
+
+  it("shows an error toast when capturing fails", async () => {
+    vi.mocked(cameraApi.takeSnapshot).mockRejectedValue(new Error("camera busy"));
+    const { result } = renderHook(() => useTakeSnapshot(), { wrapper });
+
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isError).toBe(true));
+    expect(toast.error).toHaveBeenCalledWith("camera busy");
   });
 });

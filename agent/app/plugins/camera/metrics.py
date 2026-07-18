@@ -26,3 +26,15 @@ CAMERA_FRAMES_SENT_TOTAL = Counter(
 CAMERA_STREAM_ERRORS_TOTAL = Counter(
     "camera_stream_errors_total", "Total camera/publisher errors while starting or streaming"
 )
+CAMERA_SNAPSHOTS_TOTAL = Counter(
+    "camera_snapshots_total", "Total camera.snapshot commands that captured and uploaded successfully"
+)
+CAMERA_SNAPSHOT_DURATION_SECONDS = Histogram(
+    "camera_snapshot_duration_seconds", "Time spent capturing and encoding a snapshot, excluding upload"
+)
+CAMERA_SNAPSHOT_UPLOAD_DURATION_SECONDS = Histogram(
+    "camera_snapshot_upload_duration_seconds", "Time spent uploading both snapshot images to S3"
+)
+CAMERA_SNAPSHOT_FAILURES_TOTAL = Counter(
+    "camera_snapshot_failures_total", "Total camera.snapshot commands that failed to capture or upload"
+)

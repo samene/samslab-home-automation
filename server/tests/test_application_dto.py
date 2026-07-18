@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from app.application.dto.camera_dto import CameraSnapshotDTO
 from app.application.dto.command_dto import CommandDTO
 from app.application.dto.device_dto import CapabilityDTO, DeviceDTO
 from app.application.exceptions import (
@@ -15,6 +16,7 @@ from app.application.exceptions import (
     DuplicateCapabilityError,
     InvalidCommandStateError,
     InvalidHeartbeatError,
+    SnapshotNotFoundError,
     translate_domain_error,
 )
 from app.application.mappers.command_mapper import (
@@ -24,6 +26,7 @@ from app.application.mappers.command_mapper import (
     to_command_result_dto,
 )
 from app.application.mappers.device_mapper import to_capability_dto, to_device_dto
+from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto, to_snapshot_dto
 from app.domains.commands.events import CommandEventType
 from app.domains.commands.exceptions import CommandNotFound, InvalidStateTransition
 from app.domains.commands.models import (
@@ -40,6 +43,8 @@ from app.domains.devices.exceptions import (
     InvalidHeartbeat,
 )
 from app.domains.devices.models import Device, DeviceCapability, DeviceStatus
+from app.domains.snapshots.exceptions import SnapshotNotFound
+from app.domains.snapshots.models import Snapshot
 
 
 def test_dtos_construct_independently_of_any_orm_model() -> None:
@@ -181,6 +186,69 @@ def test_translate_domain_error_maps_every_known_domain_exception() -> None:
     assert isinstance(translate_domain_error(InvalidHeartbeat("x")), InvalidHeartbeatError)
     assert isinstance(translate_domain_error(CommandNotFound("x")), CommandNotFoundError)
     assert isinstance(translate_domain_error(InvalidStateTransition("x")), InvalidCommandStateError)
+    assert isinstance(translate_domain_error(SnapshotNotFound("x")), SnapshotNotFoundError)
+
+
+def _build_snapshot(**overrides: object) -> Snapshot:
+    defaults: dict[str, object] = {
+        "id": uuid4(),
+        "device_id": uuid4(),
+        "command_id": uuid4(),
+        "filename": "snapshot.jpg",
+        "bucket": "samslab-snapshots",
+        "original_object_key": "originals/snapshot.jpg",
+        "thumbnail_object_key": "thumbnails/snapshot.jpg",
+        "etag": "\"abc123\"",
+        "sha256": "a" * 64,
+        "width": 1920,
+        "height": 1080,
+        "size": 204800,
+        "captured_at": datetime.now(UTC),
+        "created_at": datetime.now(UTC),
+        "metadata_": {},
+    }
+    defaults.update(overrides)
+    return Snapshot(**defaults)
+
+
+def test_snapshot_mapper_attaches_freshly_minted_presigned_urls() -> None:
+    """to_snapshot_dto maps persisted fields and attaches the caller-supplied URLs verbatim."""
+    snapshot = _build_snapshot()
+
+    dto = to_snapshot_dto(
+        snapshot,
+        thumbnail_url="https://s3.example/thumb?sig=1",
+        image_url="https://s3.example/full?sig=2",
+    )
+
+    assert dto.id == snapshot.id
+    assert dto.filename == "snapshot.jpg"
+    assert dto.thumbnail_url == "https://s3.example/thumb?sig=1"
+    assert dto.image_url == "https://s3.example/full?sig=2"
+    assert dto.metadata == {}
+
+
+def test_camera_snapshot_mapper_exposes_metadata_only_no_urls_or_bucket() -> None:
+    """to_camera_snapshot_dto never leaks S3 URLs, object keys, or the bucket name."""
+    snapshot = _build_snapshot()
+
+    dto = to_camera_snapshot_dto(snapshot)
+
+    assert isinstance(dto, CameraSnapshotDTO)
+    assert dto.id == snapshot.id
+    assert dto.device_id == snapshot.device_id
+    assert dto.command_id == snapshot.command_id
+    assert dto.filename == snapshot.filename
+    assert dto.width == snapshot.width
+    assert dto.height == snapshot.height
+    assert dto.size == snapshot.size
+    assert dto.captured_at == snapshot.captured_at
+    dumped = dto.model_dump()
+    assert "thumbnail_url" not in dumped
+    assert "image_url" not in dumped
+    assert "bucket" not in dumped
+    assert "original_object_key" not in dumped
+    assert "thumbnail_object_key" not in dumped
 
 
 def test_translate_domain_error_falls_back_to_generic_application_error() -> None:

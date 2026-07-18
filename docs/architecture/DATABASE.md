@@ -62,6 +62,16 @@ The `users`, `roles`, `permissions`, `user_roles`, `device_credentials`, and `re
 
 See [Security](SECURITY.md) for the full JWT/RBAC/token-lifecycle design this schema supports.
 
+### Snapshots (implemented)
+
+The `snapshots` table is implemented and migrated (`alembic/versions/20260718_0004_create_snapshots_table.py`, chained after the Auth domain migration), since `snapshots.device_id`/`snapshots.command_id` are foreign keys to `devices.id`/`commands.id`.
+
+| Table | Columns | Notes |
+| --- | --- | --- |
+| `snapshots` | `id` (UUID PK), `device_id` (FK → `devices.id`), `command_id` (FK → `commands.id`, unique), `filename`, `bucket`, `original_object_key`, `thumbnail_object_key`, `etag`, `sha256`, `width`, `height`, `size`, `captured_at`, `created_at`, `metadata` (JSONB) | **Hard-deleted**, unlike every other table above — a snapshot's whole point is a real S3 object, so `DELETE /snapshots/{id}` removes the row itself (`session.delete`) rather than setting a `deleted_at` timestamp; the unique constraint on `command_id` enforces "one snapshot per `camera.snapshot` command," mirroring `command_results`' unique `command_id` |
+
+Only object keys are stored — `bucket`/`original_object_key`/`thumbnail_object_key` — never a URL. `GET /snapshots`/`GET /snapshots/{id}` mint a fresh, short-lived presigned S3 URL on every response (`AWS_PRESIGNED_URL_TTL_SECONDS`); nothing about a snapshot's *readable* location is ever persisted, so a bucket/CDN migration never requires a data migration, only a settings change. Indexes cover `device_id`, `command_id`, and `captured_at` (the Gallery's newest-first sort key). See [Camera](../agent/CAMERA.md) for the full capture → upload → persist → presigned-read flow.
+
 ## Design Decisions
 
 PostgreSQL is authoritative for server metadata and lifecycle state. Migrations are ordered, reviewed, reversible where feasible, and run once by controlled deployment. Retention is policy-driven: operational command/audit history is retained longer than raw telemetry; object lifecycle policies delete or archive binary media independently.

@@ -13,17 +13,25 @@ behave.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import socket
 import threading
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from app.config.settings import AgentSettings
+from app.plugins.camera.exceptions import CameraUnavailableError
 from app.plugins.camera.metrics import (
     CAMERA_FRAMES_SENT_TOTAL,
+    CAMERA_SNAPSHOT_DURATION_SECONDS,
+    CAMERA_SNAPSHOT_FAILURES_TOTAL,
+    CAMERA_SNAPSHOT_UPLOAD_DURATION_SECONDS,
+    CAMERA_SNAPSHOTS_TOTAL,
     CAMERA_STREAM_ACTIVE,
     CAMERA_STREAM_DURATION_SECONDS,
     CAMERA_STREAM_ERRORS_TOTAL,
@@ -31,6 +39,10 @@ from app.plugins.camera.metrics import (
     CAMERA_STREAM_STOP_TOTAL,
 )
 from app.plugins.camera.publisher import FfmpegRtspPublisher, StreamPublisher
+from app.plugins.camera.snapshot_uploader import (
+    SnapshotUploaderProtocol,
+    build_s3_snapshot_uploader,
+)
 from app.plugins.camera.sources import FrameSource, OpenCvFrameSource, Picamera2FrameSource
 
 _JOIN_TIMEOUT_SECONDS = 5.0
@@ -46,10 +58,16 @@ class CameraService:
         *,
         frame_source_factory: Callable[[], FrameSource] | None = None,
         publisher_factory: Callable[[], StreamPublisher] | None = None,
+        snapshot_frame_source_factory: Callable[[], FrameSource] | None = None,
+        uploader: SnapshotUploaderProtocol | None = None,
     ) -> None:
         self._settings = settings
         self._frame_source_factory = frame_source_factory or self._default_frame_source
         self._publisher_factory = publisher_factory or self._default_publisher
+        self._snapshot_frame_source_factory = (
+            snapshot_frame_source_factory or self._default_snapshot_frame_source
+        )
+        self._uploader = uploader if uploader is not None else build_s3_snapshot_uploader(settings)
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -61,22 +79,28 @@ class CameraService:
 
     def _default_frame_source(self) -> FrameSource:
         settings = self._settings
+        return self._build_frame_source(width=settings.camera_width, height=settings.camera_height)
+
+    def _default_snapshot_frame_source(self) -> FrameSource:
+        settings = self._settings
+        return self._build_frame_source(
+            width=settings.camera_snapshot_width, height=settings.camera_snapshot_height
+        )
+
+    def _build_frame_source(self, *, width: int, height: int) -> FrameSource:
         # A CSI camera module (e.g. Camera Module 3) is only reachable through
         # libcamera/picamera2 on current Raspberry Pi hardware — there is no
         # V4L2 compatibility shim for the Pi 5's SoC, so OpenCV can never open
         # one directly. Prefer picamera2 whenever it's actually installed;
         # fall back to OpenCV for a plain USB/UVC webcam, which V4L2 handles
         # natively.
+        settings = self._settings
         if importlib.util.find_spec("picamera2") is not None:
-            return Picamera2FrameSource(
-                width=settings.camera_width,
-                height=settings.camera_height,
-                fps=settings.camera_fps,
-            )
+            return Picamera2FrameSource(width=width, height=height, fps=settings.camera_fps)
         return OpenCvFrameSource(
             device_index=settings.camera_device_index,
-            width=settings.camera_width,
-            height=settings.camera_height,
+            width=width,
+            height=height,
             fps=settings.camera_fps,
         )
 
@@ -226,6 +250,144 @@ class CameraService:
             "uptime_seconds": uptime_seconds,
             "frames_sent": self._frames_sent,
         }
+
+    def capture_snapshot(self) -> dict[str, Any]:
+        """Capture one high-resolution still image and upload it to S3.
+
+        Independent of streaming — this can be called whether or not
+        ``start()``/``stop()`` has ever run. If a stream is already active,
+        this reuses its live ``FrameSource`` (at the stream's *current*
+        resolution) without stopping or restarting it. If idle, a *fresh*
+        ``FrameSource`` is opened at the higher ``camera_snapshot_width``/
+        ``camera_snapshot_height`` resolution — since the point of a
+        standalone snapshot is a better-than-streaming-quality still — and
+        released again immediately after, so a snapshot never leaves the
+        camera open. Raises ``CameraUnavailableError`` if no uploader is
+        configured (``AWS_S3_BUCKET``/``AWS_ACCESS_KEY_ID`` unset) or if
+        capture/encode/upload fails for any reason. Returns metadata only —
+        image bytes never leave this method.
+
+        Reusing the live path's frame source calls its ``read()`` from this
+        method's (thread-pool executor) thread while ``_pump_frames`` may
+        concurrently be calling the *same* ``read()`` from its own thread.
+        This is a deliberate, accepted simplification rather than adding a
+        producer/consumer hand-off between the two — the live streaming path
+        is explicitly out of scope to modify here, and a single extra
+        concurrent grab is, in the worst case, one visually imperceptible
+        torn frame for this one snapshot, never a crash or a dropped stream
+        frame.
+        """
+        if self._uploader is None:
+            raise CameraUnavailableError(
+                "AWS S3 is not configured for snapshot uploads "
+                "(AWS_S3_BUCKET/AWS_ACCESS_KEY_ID are unset)"
+            )
+
+        capture_started = time.monotonic()
+        try:
+            frame_bytes, width, height, reused_stream = self._acquire_snapshot_frame()
+            if frame_bytes is None:
+                raise CameraUnavailableError("Camera returned no frame for snapshot capture")
+            original_bytes, thumbnail_bytes = self._encode_snapshot(frame_bytes, width, height)
+        except Exception:
+            CAMERA_SNAPSHOT_FAILURES_TOTAL.inc()
+            raise
+        capture_duration = time.monotonic() - capture_started
+        CAMERA_SNAPSHOT_DURATION_SECONDS.observe(capture_duration)
+
+        captured_at = datetime.now(UTC)
+        sha256_hex = hashlib.sha256(original_bytes).hexdigest()
+
+        self._settings.tmp_directory.mkdir(parents=True, exist_ok=True)
+        original_path = self._settings.tmp_directory / f"snapshot-{uuid4()}-original.jpg"
+        thumbnail_path = self._settings.tmp_directory / f"snapshot-{uuid4()}-thumbnail.jpg"
+        original_path.write_bytes(original_bytes)
+        thumbnail_path.write_bytes(thumbnail_bytes)
+
+        upload_started = time.monotonic()
+        try:
+            result = self._uploader.upload(
+                original_bytes=original_bytes,
+                thumbnail_bytes=thumbnail_bytes,
+                device_name=self._settings.device_name,
+                captured_at=captured_at,
+            )
+        except Exception as error:
+            CAMERA_SNAPSHOT_FAILURES_TOTAL.inc()
+            raise CameraUnavailableError(f"Failed to upload snapshot to S3: {error}") from error
+        finally:
+            # Delete temp files whether the upload succeeded or failed — a
+            # failed upload leaves nothing durable to retry from in this
+            # (deliberately simple, synchronous) design; see docs/agent/CAMERA.md.
+            original_path.unlink(missing_ok=True)
+            thumbnail_path.unlink(missing_ok=True)
+        upload_duration = time.monotonic() - upload_started
+        CAMERA_SNAPSHOT_UPLOAD_DURATION_SECONDS.observe(upload_duration)
+        CAMERA_SNAPSHOTS_TOTAL.inc()
+
+        return {
+            "bucket": result.bucket,
+            "filename": result.filename,
+            "original_object_key": result.original_object_key,
+            "thumbnail_object_key": result.thumbnail_object_key,
+            "etag": result.etag,
+            "sha256": sha256_hex,
+            "width": width,
+            "height": height,
+            "size": result.size,
+            "captured_at": captured_at.isoformat(),
+            "reused_stream": reused_stream,
+            "capture_duration": capture_duration,
+            "upload_duration": upload_duration,
+        }
+
+    def _acquire_snapshot_frame(self) -> tuple[bytes | None, int, int, bool]:
+        """Grab exactly one raw frame; reuse the live session or open a fresh one.
+
+        Returns ``(frame_bytes, width, height, reused_stream)``. Held under
+        ``self._lock`` only long enough to read one frame — the (slower)
+        encode/upload work happens outside the lock so it never blocks a
+        concurrent ``start()``/``stop()`` call.
+        """
+        with self._lock:
+            if self.is_streaming:
+                frame_source = self._frame_source
+                assert frame_source is not None
+                return (
+                    frame_source.read(),
+                    self._settings.camera_width,
+                    self._settings.camera_height,
+                    True,
+                )
+            frame_source = self._snapshot_frame_source_factory()
+            width = self._settings.camera_snapshot_width
+            height = self._settings.camera_snapshot_height
+            try:
+                frame_source.open()
+                return frame_source.read(), width, height, False
+            finally:
+                frame_source.close()
+
+    def _encode_snapshot(self, frame_bytes: bytes, width: int, height: int) -> tuple[bytes, bytes]:
+        """Encode a raw BGR24 frame as a full-size JPEG plus a resized thumbnail."""
+        import cv2
+        import numpy as np
+
+        frame = np.frombuffer(frame_bytes, dtype=np.uint8).reshape((height, width, 3))
+        ok, original_buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 90])
+        if not ok:
+            raise CameraUnavailableError("Failed to encode snapshot as JPEG")
+
+        thumbnail_width = self._settings.camera_snapshot_thumbnail_width
+        thumbnail_height = max(1, round(height * (thumbnail_width / width)))
+        thumbnail_frame = cv2.resize(
+            frame, (thumbnail_width, thumbnail_height), interpolation=cv2.INTER_AREA
+        )
+        ok, thumbnail_buffer = cv2.imencode(".jpg", thumbnail_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok:
+            raise CameraUnavailableError("Failed to encode snapshot thumbnail as JPEG")
+
+        return original_buffer.tobytes(), thumbnail_buffer.tobytes()
 
     def check_camera_detected(self) -> bool:
         """Best-effort check: streaming implies detected; idle falls back to a device-path probe."""

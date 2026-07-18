@@ -106,6 +106,50 @@ class AgentSettings(BaseSettings):
     # cost. Slower presets (e.g. "faster", "fast") trade further encode time
     # for further efficiency if a Pi 5's CPU allows it.
     camera_preset: str = Field(default="veryfast", validation_alias="CAMERA_PRESET")
+    # Snapshot capture is independent of streaming (see
+    # app/plugins/camera/service.py's capture_snapshot): when no stream is
+    # active, it opens its own FrameSource at this (deliberately higher than
+    # camera_width/camera_height) resolution, since the whole point of a
+    # snapshot is a higher-quality still than the bandwidth-constrained
+    # streaming resolution. When a stream *is* active, the snapshot reuses
+    # that session's frame source as-is, at whatever resolution it's
+    # currently running — these settings don't apply in that case.
+    camera_snapshot_width: int = Field(
+        default=1920, gt=0, validation_alias="CAMERA_SNAPSHOT_WIDTH"
+    )
+    camera_snapshot_height: int = Field(
+        default=1080, gt=0, validation_alias="CAMERA_SNAPSHOT_HEIGHT"
+    )
+    camera_snapshot_thumbnail_width: int = Field(
+        default=320, gt=0, validation_alias="CAMERA_SNAPSHOT_THUMBNAIL_WIDTH"
+    )
+    # AWS credentials the agent uses to upload snapshot images directly to S3
+    # (see app/plugins/camera/snapshot_uploader.py). Deliberately separate
+    # settings from the cloud server's own aws_* fields (server/app/config/
+    # settings.py) — different IAM credentials on each side, least-privilege:
+    # the agent only ever needs PutObject on this bucket/prefix, the server
+    # only ever needs GetObject/presign + DeleteObject. None for any of the
+    # first four disables snapshot uploads entirely (capture_snapshot then
+    # raises CameraUnavailableError) rather than the agent failing to start —
+    # matching the same "missing optional adapter config is not fatal"
+    # pattern already used for MEDIAMTX_JWT_PRIVATE_KEY.
+    aws_region: str | None = Field(default=None, validation_alias="AWS_REGION")
+    aws_access_key_id: str | None = Field(default=None, validation_alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: SecretStr | None = Field(
+        default=None, validation_alias="AWS_SECRET_ACCESS_KEY"
+    )
+    aws_s3_bucket: str | None = Field(default=None, validation_alias="AWS_S3_BUCKET")
+    aws_s3_prefix: str = Field(default="snapshots", validation_alias="AWS_S3_PREFIX")
+
+    @field_validator(
+        "aws_region", "aws_access_key_id", "aws_secret_access_key", "aws_s3_bucket", mode="before"
+    )
+    @classmethod
+    def parse_aws_optional(cls, value: Any) -> Any:
+        """Treat an empty value as "unset" for these optional AWS fields."""
+        if value == "":
+            return None
+        return value
 
     @field_validator("mediamtx_playback_port", mode="before")
     @classmethod

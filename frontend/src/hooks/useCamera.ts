@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { getCameraStatus, startCameraStream, stopCameraStream } from "@/lib/api/camera";
+import { getCameraStatus, startCameraStream, stopCameraStream, takeSnapshot } from "@/lib/api/camera";
 import { getErrorMessage } from "@/lib/api/errors";
 
 const CAMERA_STATUS_QUERY_KEY = ["camera", "status"];
@@ -41,6 +41,20 @@ export function useStopCameraStream() {
     },
     onError: (error) => {
       toast.error(getErrorMessage(error, "Failed to stop camera stream"));
+    },
+  });
+}
+
+export function useTakeSnapshot() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: takeSnapshot,
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["snapshots"] });
+      toast.success("Snapshot captured");
+    },
+    onError: (error) => {
+      toast.error(getErrorMessage(error, "Failed to capture snapshot"));
     },
   });
 }

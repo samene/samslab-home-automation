@@ -35,6 +35,7 @@ from app.core.problems import (
 from app.domains.auth.api import router as auth_router
 from app.domains.commands.api import router as commands_router
 from app.domains.devices.api import router as devices_router
+from app.domains.snapshots.api import router as snapshots_router
 from app.logging.configure import configure_logging
 from app.logging.context import get_request_context
 from app.middleware.request_context import RequestContextMiddleware
@@ -197,6 +198,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "Raspberry Pi; it only ever receives a MediaMTX playback URL."
                 ),
             },
+            {
+                "name": "Snapshots",
+                "description": (
+                    "High-resolution still-image metadata, captured via camera.snapshot "
+                    "commands and uploaded directly to Amazon S3 by the agent. The "
+                    "backend never proxies image bytes; it only mints fresh, "
+                    "short-lived presigned URLs on read."
+                ),
+            },
         ],
         lifespan=lifespan,
     )
@@ -216,6 +226,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(build_websocket_router(resolved_settings))
     application.include_router(dispatcher_router)
     application.include_router(camera_router)
+    application.include_router(snapshots_router)
     application.include_router(mediamtx_jwks_router)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)

@@ -23,6 +23,7 @@ from app.application.exceptions.errors import (
     InvalidHeartbeatError,
     InvalidTokenError,
     PermissionDeniedError,
+    SnapshotNotFoundError,
 )
 from app.domains.auth.exceptions import (
     DeviceCredentialAlreadyExists,
@@ -41,6 +42,7 @@ from app.domains.devices.exceptions import (
     DuplicateCapability,
     InvalidHeartbeat,
 )
+from app.domains.snapshots.exceptions import SnapshotNotFound
 
 _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DeviceAlreadyExists: DeviceAlreadyExistsError,
@@ -57,6 +59,7 @@ _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DisabledDevice: DisabledDeviceError,
     DeviceCredentialNotFound: DeviceCredentialNotFoundError,
     DeviceCredentialAlreadyExists: DeviceCredentialAlreadyExistsError,
+    SnapshotNotFound: SnapshotNotFoundError,
 }
 
 

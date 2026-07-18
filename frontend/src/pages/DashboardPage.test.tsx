@@ -2,10 +2,16 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
-import { useCameraStatus, useStartCameraStream, useStopCameraStream } from "@/hooks/useCamera";
+import {
+  useCameraStatus,
+  useStartCameraStream,
+  useStopCameraStream,
+  useTakeSnapshot,
+} from "@/hooks/useCamera";
 import { useCommand, useCommands, useCreateCommand } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
 import { useDispatcherStatistics, useDispatcherStatus } from "@/hooks/useDispatcher";
+import { useDeleteSnapshot, useSnapshot, useSnapshots } from "@/hooks/useSnapshots";
 import type { CommandDTO, DeviceDTO } from "@/types/api";
 import { DashboardPage } from "./DashboardPage";
 
@@ -13,6 +19,7 @@ vi.mock("@/hooks/useDevices");
 vi.mock("@/hooks/useCommands");
 vi.mock("@/hooks/useCamera");
 vi.mock("@/hooks/useDispatcher");
+vi.mock("@/hooks/useSnapshots");
 vi.mock("hls.js", () => ({
   default: class {
     static isSupported() {
@@ -28,8 +35,12 @@ const mockedUseCommand = vi.mocked(useCommand);
 const mockedUseStartCameraStream = vi.mocked(useStartCameraStream);
 const mockedUseCameraStatus = vi.mocked(useCameraStatus);
 const mockedUseStopCameraStream = vi.mocked(useStopCameraStream);
+const mockedUseTakeSnapshot = vi.mocked(useTakeSnapshot);
 const mockedUseDispatcherStatus = vi.mocked(useDispatcherStatus);
 const mockedUseDispatcherStatistics = vi.mocked(useDispatcherStatistics);
+const mockedUseSnapshots = vi.mocked(useSnapshots);
+const mockedUseSnapshot = vi.mocked(useSnapshot);
+const mockedUseDeleteSnapshot = vi.mocked(useDeleteSnapshot);
 
 function mockCommonHooks() {
   mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
@@ -46,6 +57,10 @@ function mockCommonHooks() {
     mutateAsync: vi.fn(),
     isPending: false,
   } as unknown as ReturnType<typeof useStopCameraStream>);
+  mockedUseTakeSnapshot.mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useTakeSnapshot>);
   mockedUseDispatcherStatus.mockReturnValue({
     data: undefined,
     isError: true,
@@ -54,6 +69,16 @@ function mockCommonHooks() {
     data: undefined,
     isError: true,
   } as unknown as ReturnType<typeof useDispatcherStatistics>);
+  mockedUseSnapshots.mockReturnValue({
+    data: { items: [], total: 0, offset: 0, limit: 3 },
+  } as unknown as ReturnType<typeof useSnapshots>);
+  mockedUseSnapshot.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
+    typeof useSnapshot
+  >);
+  mockedUseDeleteSnapshot.mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteSnapshot>);
 }
 
 const DEVICE: DeviceDTO = {

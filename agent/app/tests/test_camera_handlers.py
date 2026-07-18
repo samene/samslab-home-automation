@@ -13,6 +13,7 @@ from app.commands.registry import CommandRegistry
 from app.health.service import HealthService
 from app.plugins.camera.exceptions import CameraUnavailableError
 from app.plugins.camera.handlers import (
+    CameraSnapshotHandler,
     CameraStatusHandler,
     CameraStreamStartHandler,
     CameraStreamStopHandler,
@@ -23,6 +24,7 @@ from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.tests.conftest import make_settings
 from app.tests.test_camera_service import FakeFrameSource, FakeStreamPublisher
+from app.tests.test_camera_snapshot import FakeSnapshotFrameSource, FakeUploader
 
 
 def _context(camera_service: CameraService, registry: CommandRegistry) -> CommandContext:
@@ -74,12 +76,17 @@ def _camera_service() -> CameraService:
     )
 
 
-def test_register_camera_handlers_registers_all_three() -> None:
+def test_register_camera_handlers_registers_all_four() -> None:
     registry = CommandRegistry()
     register_camera_handlers(registry)
 
     types = {handler.command_type for handler in registry.list_handlers()}
-    assert types == {"camera.stream.start", "camera.stream.stop", "camera.status"}
+    assert types == {
+        "camera.stream.start",
+        "camera.stream.stop",
+        "camera.status",
+        "camera.snapshot",
+    }
 
 
 async def test_start_handler_returns_stream_info() -> None:
@@ -155,3 +162,37 @@ async def test_start_handler_propagates_camera_unavailable_errors() -> None:
 
     with pytest.raises(CameraUnavailableError, match="camera not detected"):
         await CameraStreamStartHandler().execute(context, {})
+
+
+def _snapshot_camera_service(*, uploader: FakeUploader | None) -> CameraService:
+    settings = make_settings(
+        DEVICE_NAME="backyard-pi", CAMERA_SNAPSHOT_WIDTH=64, CAMERA_SNAPSHOT_HEIGHT=48
+    )
+    frame_source = FakeSnapshotFrameSource(width=64, height=48)
+    return CameraService(
+        settings, snapshot_frame_source_factory=lambda: frame_source, uploader=uploader
+    )
+
+
+async def test_snapshot_handler_returns_metadata_only() -> None:
+    camera_service = _snapshot_camera_service(uploader=FakeUploader())
+    context = _context(camera_service, CommandRegistry())
+    handler = CameraSnapshotHandler()
+
+    await handler.validate(context, {})
+    result = await handler.execute(context, {})
+
+    assert result["bucket"] == "test-bucket"
+    assert result["width"] == 64
+    assert result["height"] == 48
+    assert result["captured_at"] is not None
+    assert "image" not in result and "bytes" not in result
+
+
+async def test_snapshot_handler_propagates_camera_unavailable_when_s3_is_unconfigured() -> None:
+    camera_service = _snapshot_camera_service(uploader=None)
+    context = _context(camera_service, CommandRegistry())
+    handler = CameraSnapshotHandler()
+
+    with pytest.raises(CameraUnavailableError, match="not configured"):
+        await handler.execute(context, {})

@@ -163,6 +163,21 @@ class Settings(BaseSettings):
     camera_command_poll_interval_seconds: float = Field(
         default=0.25, gt=0, validation_alias="CAMERA_COMMAND_POLL_INTERVAL_SECONDS"
     )
+    camera_snapshot_command_timeout_seconds: float = Field(
+        default=60.0, gt=0, validation_alias="CAMERA_SNAPSHOT_COMMAND_TIMEOUT_SECONDS"
+    )
+    # Independent of the agent's own AWS_* settings (agent/app/config/settings.py):
+    # least-privilege in mind, this side only ever needs GetObject/presign +
+    # DeleteObject, never PutObject — see app/core/s3_client.py.
+    aws_region: str | None = Field(default=None, validation_alias="AWS_REGION")
+    aws_access_key_id: str | None = Field(default=None, validation_alias="AWS_ACCESS_KEY_ID")
+    aws_secret_access_key: SecretStr | None = Field(
+        default=None, validation_alias="AWS_SECRET_ACCESS_KEY"
+    )
+    aws_s3_bucket: str | None = Field(default=None, validation_alias="AWS_S3_BUCKET")
+    aws_presigned_url_ttl_seconds: float = Field(
+        default=300.0, gt=0, validation_alias="AWS_PRESIGNED_URL_TTL_SECONDS"
+    )
 
     @field_validator("log_level")
     @classmethod
@@ -195,6 +210,16 @@ class Settings(BaseSettings):
     @classmethod
     def parse_mediamtx_jwt_optional(cls, value: Any) -> Any:
         """Treat an empty value as "unset" for these optional MediaMTX JWT fields."""
+        if value == "":
+            return None
+        return value
+
+    @field_validator(
+        "aws_region", "aws_access_key_id", "aws_secret_access_key", "aws_s3_bucket", mode="before"
+    )
+    @classmethod
+    def parse_aws_optional(cls, value: Any) -> Any:
+        """Treat an empty value as "unset" for these optional AWS fields."""
         if value == "":
             return None
         return value

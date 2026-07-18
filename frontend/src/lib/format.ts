@@ -33,3 +33,18 @@ export function getThumbnailUrl(result: Record<string, unknown> | null | undefin
   const candidate = result?.thumbnail_url ?? result?.image_url;
   return typeof candidate === "string" ? candidate : null;
 }
+
+export function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kilobytes = bytes / 1024;
+  if (kilobytes < 1024) return `${Math.round(kilobytes)} KB`;
+  return `${(kilobytes / 1024).toFixed(1)} MB`;
+}
+
+const COMMAND_LABELS: Record<string, string> = {
+  "camera.snapshot": "Snapshot Captured",
+};
+
+export function friendlyCommandLabel(commandType: string): string {
+  return COMMAND_LABELS[commandType] ?? commandType;
+}

@@ -8,9 +8,11 @@ Describe the camera capture, live-streaming, and future media-handling boundary.
 
 Live streaming — starting, stopping, and reporting the status of one RTSP
 stream published to an already-deployed MediaMTX instance, viewed by the
-browser through MediaMTX's own playback page — is implemented. Still-image
-capture, video recording, object-storage upload, and AI/vision processing are
-explicitly **not** part of this phase; see Future Considerations.
+browser through MediaMTX's own playback page — is implemented. High-resolution
+still-image capture ("snapshot"), independent of streaming and uploaded
+directly to Amazon S3, is also implemented (see "Snapshot capture" below).
+Video recording and AI/vision processing are explicitly **not** part of this
+phase; see Future Considerations.
 
 ## Architecture
 
@@ -137,6 +139,21 @@ URL for `GET /camera/status` without depending on a live command result —
 this is the URL the browser actually loads; the agent's own `playback_url()`
 is only ever included in a command result for logging symmetry and is never
 fetched by the browser directly.
+
+Snapshot-specific agent settings: `CAMERA_SNAPSHOT_WIDTH`/`CAMERA_SNAPSHOT_HEIGHT`
+(default 1920x1080), `CAMERA_SNAPSHOT_THUMBNAIL_WIDTH` (default 320),
+`AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_S3_BUCKET`/
+`AWS_S3_PREFIX` (default `snapshots`) — all optional; leaving `AWS_S3_BUCKET`/
+`AWS_ACCESS_KEY_ID` unset disables snapshot uploads entirely (streaming is
+unaffected). Snapshot-specific server settings:
+`CAMERA_SNAPSHOT_COMMAND_TIMEOUT_SECONDS` (default 60 — longer than
+`CAMERA_COMMAND_TIMEOUT_SECONDS`'s default 15, since a standalone capture may
+need to open the camera, capture, encode, and upload two files before it
+completes), plus the server's own, independently configured
+`AWS_REGION`/`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`/`AWS_S3_BUCKET`/
+`AWS_PRESIGNED_URL_TTL_SECONDS` (default 300) — least-privilege credentials
+distinct from the agent's own (`GetObject`/presign + `DeleteObject` only,
+never `PutObject`).
 
 ### Browser playback authentication
 
@@ -282,14 +299,78 @@ hardware, and this is worth being explicit about rather than papering over:
   the apt package is present, because it's simply not on that venv's
   `sys.path`.
 
-### Still images and recording (future)
+### Snapshot capture (implemented)
 
-A camera driver would expose typed capture capabilities; the agent would
-validate a `TAKE_PHOTO` command, invoke the driver, write a temporary local
-artifact, calculate metadata/checksum, move it atomically into the spool,
-obtain server-authorized upload details, upload over TLS, and emit an
-event/result with an object reference. Failures would remain durable for
-retry under retention and disk limits. None of this is implemented yet.
+Unlike streaming, a snapshot genuinely needs persisted metadata (a gallery
+has to list, paginate, and delete past captures), so this is the first
+first-class domain the camera subsystem has needed: `server/app/domains/snapshots/`
+follows the Device Registry's exact vertical-slice shape (`models.py`/
+`repository.py`/`service.py`/`exceptions.py`/`api.py`). Unlike Devices/Commands,
+a `Snapshot` row is **hard-deleted**, not soft-deleted — its whole point is a
+real S3 object, so `DELETE /snapshots/{id}` removes both the row and the
+underlying objects rather than preserving an audit trail for a file that no
+longer exists.
+
+The full path: browser → `POST /camera/snapshot` → `camera.snapshot` command
+(dispatched and awaited through the *same* `_create_command`/
+`_wait_for_terminal` primitives `start_stream`/`stop_stream` already use, just
+with a longer, snapshot-specific timeout — `_wait_for_terminal` gained an
+optional `timeout_seconds` parameter for this, defaulting to today's behavior
+so `start_stream`/`stop_stream` are unaffected) → agent (`CameraService.capture_snapshot`)
+→ Amazon S3 (agent uploads directly via `boto3`) → the command's result carries
+only object keys/metadata back to `CameraApplicationService`, which persists
+it via `SnapshotService` → PostgreSQL → `GET /snapshots` (Gallery).
+
+**Independent of streaming, sharing the same `CameraService`.** If a live
+stream is already running, `capture_snapshot()` reuses the active
+`FrameSource` at the stream's *current* resolution, without interrupting it —
+deliberately accepting a rare torn-frame race (this method's caller thread and
+`_pump_frames`'s own thread can both call `read()` concurrently) rather than
+touching the live streaming path at all. If idle, it opens a *fresh*
+`FrameSource` at higher, snapshot-specific `CAMERA_SNAPSHOT_WIDTH`/
+`CAMERA_SNAPSHOT_HEIGHT` settings (default 1920x1080 — "high-resolution," as
+opposed to whatever lower resolution streaming is configured at), captures
+one frame, and closes it again immediately — a snapshot never leaves the
+camera open. Both paths encode a full-size JPEG plus a `CAMERA_SNAPSHOT_THUMBNAIL_WIDTH`-wide
+(default 320) thumbnail via `cv2.imencode`/`cv2.resize` — already a dependency
+for streaming, so no new image library was introduced — write both to a temp
+file, upload both directly to S3 (`plugins/camera/snapshot_uploader.py`'s
+`S3SnapshotUploader`, keys `<prefix>/YYYY/MM/DD/<device-name>/original|thumbnails/<uuid>.jpg`,
+each `put_object` verified via a `head_object` round trip, `Config(retries=...)`
+for transient failures), then delete the temp files whether the upload
+succeeded or failed. The handler/service return **metadata only** — bucket,
+object keys, a sha256 of the original bytes, dimensions, size, timestamps —
+image bytes never leave `capture_snapshot()`.
+
+**Presigned URLs are minted only on read, only server-side, only by
+`SnapshotApplicationService`.** PostgreSQL stores object keys, never a URL —
+`GET /snapshots`/`GET /snapshots/{id}` mint a fresh, short-lived presigned URL
+(`AWS_PRESIGNED_URL_TTL_SECONDS`, default 300s) on every response via
+`app/core/s3_client.py`'s `S3Client` (the read-side mirror of the agent's
+upload-side adapter — separate, least-privilege credentials: the agent's
+`AWS_*` settings only ever need `PutObject`, the server's only ever need
+`GetObject`/presign + `DeleteObject`). `CameraApplicationService.capture_snapshot()`
+never touches S3 at all — `POST /camera/snapshot`'s response
+(`CameraSnapshotDTO`) is metadata-only, with no `thumbnail_url`/`image_url`;
+the frontend gets working image URLs by then querying `GET /snapshots`. The
+browser always loads snapshot images directly from S3 — the backend never
+proxies image bytes.
+
+Both the agent-side (`agent/app/config/settings.py`) and server-side
+(`server/app/config/settings.py`) `AWS_REGION`/`AWS_ACCESS_KEY_ID`/
+`AWS_SECRET_ACCESS_KEY`/`AWS_S3_BUCKET` settings are optional and independently
+configured — `None` disables the adapter (`build_s3_snapshot_uploader`/
+`build_s3_client` both return `None`, mirroring `build_mediamtx_jwt_signer`'s
+"optional adapter" pattern), so neither side fails to start without S3
+configured; only an actual snapshot capture/read/delete fails, clearly, once
+requested. `boto3`/`botocore` are imported lazily (inside the `build_*`
+factory functions), matching `sources.py`'s lazy `cv2`/`picamera2` imports, so
+importing either module never requires `boto3` to be installed just to run
+streaming or the rest of the server.
+
+**Metrics** (agent-side, `plugins/camera/metrics.py`): `camera_snapshots_total`,
+`camera_snapshot_duration_seconds` (capture+encode, excludes upload),
+`camera_snapshot_upload_duration_seconds`, `camera_snapshot_failures_total`.
 
 ## Design Decisions
 
@@ -298,30 +379,41 @@ retry under retention and disk limits. None of this is implemented yet.
   returns (never one the frontend hardcodes or the device reports directly),
   authenticated with a JWT the server mints alongside it.
 - The cloud server controls camera lifecycle entirely through the existing
-  Command domain (`camera.stream.start`/`camera.stream.stop`) — there is no
-  camera-specific persistence or domain, only an application-layer
-  orchestration over Commands and Devices.
+  Command domain (`camera.stream.start`/`camera.stream.stop`/`camera.snapshot`)
+  — streaming itself still has no camera-specific persistence, only an
+  application-layer orchestration over Commands and Devices. Snapshots are
+  the exception: they genuinely need persisted metadata (a gallery has to
+  list/paginate/delete), so `snapshots` is a first-class domain, following the
+  Device Registry's exact reference pattern — see "Snapshot capture" above.
 - Camera libraries and the RTSP publish process stay inside
   `agent/app/plugins/camera/`'s `FrameSource`/`StreamPublisher` seams; no
-  command handler imports OpenCV/ffmpeg directly.
-- Camera libraries remain inside drivers for the future capture path, too.
-  Media bytes will never enter PostgreSQL or the command WebSocket; the
-  server will record metadata and authorization, S3-compatible storage will
-  hold binary objects.
+  command handler imports OpenCV/ffmpeg directly. The snapshot path reuses
+  `FrameSource` for capture and `cv2` for JPEG encode/thumbnail — no new
+  image library was introduced.
+- Media bytes never enter PostgreSQL or the command WebSocket. Snapshot image
+  bytes go straight from the agent to Amazon S3 over `boto3`; PostgreSQL only
+  ever stores metadata and S3 object keys, never a URL — presigned URLs are
+  minted fresh on every read, server-side only (`SnapshotApplicationService`),
+  never persisted, never hardcoded.
 - MediaMTX itself is out of scope: this implementation assumes it is already
   deployed and configured, and never modifies it.
 
 ## Future Considerations
 
-Still-image capture (`TAKE_PHOTO`), video segments/recording, thumbnails,
-motion triggers, S3 upload, AI/vision processing, encryption, redaction, and
-asynchronous processing workers — all deferred past this phase.
+Video segments/recording, motion triggers, AI/vision processing, encryption,
+redaction, and asynchronous processing workers — all deferred past this
+phase. The snapshot design was deliberately kept extensible toward: scheduled
+snapshots, a snapshot taken automatically before/after a watering command,
+broader automation workflows, and AI image analysis over captured snapshots —
+none of these require a redesign, only new callers of the existing
+`camera.snapshot` command and `SnapshotService`.
 
 ## Open Questions
 
-What resolution, capture cadence, local retention, and privacy zones will the
-future capture path require? Should a future phase report a real MediaMTX
-viewer count (today's `viewer_count` is always `0`, a documented placeholder)?
+What retention policy (if any) should apply to old snapshots, and should
+deletion ever be automatic rather than always user-initiated? Should a future
+phase report a real MediaMTX viewer count (today's `viewer_count` is always
+`0`, a documented placeholder)?
 
 ## References
 
@@ -329,3 +421,4 @@ viewer count (today's `viewer_count` is always `0`, a documented placeholder)?
 - [Commands](COMMANDS.md)
 - [Data flow](../architecture/DATAFLOW.md)
 - [API](../architecture/API.md)
+- [Database](../architecture/DATABASE.md)

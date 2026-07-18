@@ -7,6 +7,7 @@ from app.application.events.logging_subscriber import register_logging_subscribe
 from app.config.settings import Settings
 from app.core.database import Database
 from app.core.mediamtx_jwt import build_mediamtx_jwt_signer
+from app.core.s3_client import build_s3_client
 from app.dispatcher.dispatcher import CommandDispatcher
 from app.websocket.manager import SessionManager
 
@@ -24,6 +25,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
     event_bus = providers.Singleton(EventBus)
     session_manager = providers.Singleton(SessionManager)
     mediamtx_jwt_signer = providers.Singleton(build_mediamtx_jwt_signer, settings=settings)
+    s3_client = providers.Singleton(build_s3_client, settings=settings)
     dispatcher = providers.Singleton(
         CommandDispatcher,
         settings=settings,

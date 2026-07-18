@@ -12,7 +12,7 @@ import { CommandStatusBadge } from "@/components/shared/StatusBadge";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
-import { formatDuration, formatTimestamp, getThumbnailUrl } from "@/lib/format";
+import { formatDuration, formatTimestamp, friendlyCommandLabel, getThumbnailUrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CommandDTO } from "@/types/api";
 
@@ -85,7 +85,9 @@ export function HistoryTimeline({
                       <Icon className="size-5" />
                     </span>
                     <span className="min-w-0 flex-1 text-left">
-                      <span className="block truncate text-sm font-semibold">{command.command_type}</span>
+                      <span className="block truncate text-sm font-semibold">
+                        {friendlyCommandLabel(command.command_type)}
+                      </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         <span>{deviceNameById[command.device_id] ?? command.device_id}</span> ·{" "}
                         <span>{formatTimestamp(command.created_at)}</span>

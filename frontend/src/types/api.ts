@@ -198,6 +198,41 @@ export interface CameraStopDTO {
   stopped_at: string | null;
 }
 
+export interface CameraSnapshotDTO {
+  id: string;
+  device_id: string;
+  command_id: string;
+  filename: string;
+  width: number;
+  height: number;
+  size: number;
+  captured_at: string;
+}
+
+export interface SnapshotDTO {
+  id: string;
+  device_id: string;
+  command_id: string;
+  filename: string;
+  thumbnail_url: string;
+  image_url: string;
+  etag: string | null;
+  sha256: string;
+  width: number;
+  height: number;
+  size: number;
+  captured_at: string;
+  created_at: string;
+  metadata: Record<string, unknown>;
+}
+
+export interface SnapshotPageDTO {
+  items: SnapshotDTO[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 export interface ApiProblem {
   type: string;
   title: string;

@@ -9,6 +9,7 @@ import { DashboardPage } from "@/pages/DashboardPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SettingsPage } from "@/pages/SettingsPage";
+import { SnapshotsPage } from "@/pages/SnapshotsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +43,16 @@ export function App() {
                   <ProtectedRoute>
                     <AppShell>
                       <HistoryPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/snapshots"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <SnapshotsPage />
                     </AppShell>
                   </ProtectedRoute>
                 }

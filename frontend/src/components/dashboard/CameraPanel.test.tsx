@@ -75,12 +75,35 @@ describe("CameraPanel", () => {
         isStopping={false}
         onGoLive={onGoLive}
         onStop={vi.fn()}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot={false}
       />,
     );
 
     expect(screen.getByText("Camera is idle")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /go live/i }));
     expect(onGoLive).toHaveBeenCalledOnce();
+  });
+
+  it("hides the Take Snapshot button when there is no active stream", () => {
+    mockedUseCameraStatus.mockReturnValue({ data: undefined, isError: false } as unknown as ReturnType<
+      typeof useCameraStatus
+    >);
+
+    render(
+      <CameraPanel
+        hasDevice
+        cameraStatus={null}
+        isStarting={false}
+        isStopping={false}
+        onGoLive={vi.fn()}
+        onStop={vi.fn()}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot={false}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /take snapshot/i })).not.toBeInTheDocument();
   });
 
   it("shows the live video and calls onStop when a stream is active", async () => {
@@ -99,12 +122,62 @@ describe("CameraPanel", () => {
         isStopping={false}
         onGoLive={vi.fn()}
         onStop={onStop}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot={false}
       />,
     );
 
     expect(screen.getByText("LIVE")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /stop streaming/i }));
     expect(onStop).toHaveBeenCalledOnce();
+  });
+
+  it("shows the Take Snapshot button while the stream is active, and it calls onTakeSnapshot", async () => {
+    const status = makeStatus();
+    mockedUseCameraStatus.mockReturnValue({ data: status, isError: false } as unknown as ReturnType<
+      typeof useCameraStatus
+    >);
+    const onTakeSnapshot = vi.fn();
+    const user = userEvent.setup();
+
+    render(
+      <CameraPanel
+        hasDevice
+        cameraStatus={status}
+        isStarting={false}
+        isStopping={false}
+        onGoLive={vi.fn()}
+        onStop={vi.fn()}
+        onTakeSnapshot={onTakeSnapshot}
+        isTakingSnapshot={false}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: /take snapshot/i });
+    await user.click(button);
+    expect(onTakeSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("disables the Take Snapshot button and shows Capturing… while taking a snapshot", () => {
+    const status = makeStatus();
+    mockedUseCameraStatus.mockReturnValue({ data: status, isError: false } as unknown as ReturnType<
+      typeof useCameraStatus
+    >);
+
+    render(
+      <CameraPanel
+        hasDevice
+        cameraStatus={status}
+        isStarting={false}
+        isStopping={false}
+        onGoLive={vi.fn()}
+        onStop={vi.fn()}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /capturing/i })).toBeDisabled();
   });
 
   it("disables the toggle button when there is no device", () => {
@@ -120,6 +193,8 @@ describe("CameraPanel", () => {
         isStopping={false}
         onGoLive={vi.fn()}
         onStop={vi.fn()}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot={false}
       />,
     );
 
@@ -157,6 +232,8 @@ describe("CameraPanel hls.js manifest-load retry", () => {
         isStopping={false}
         onGoLive={vi.fn()}
         onStop={vi.fn()}
+        onTakeSnapshot={vi.fn()}
+        isTakingSnapshot={false}
       />,
     );
     const instance = instances[0];

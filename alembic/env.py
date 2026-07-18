@@ -10,6 +10,7 @@ from app.core.database import Base
 from app.domains.auth import models as auth_models  # noqa: F401
 from app.domains.commands import models as commands_models  # noqa: F401
 from app.domains.devices import models as devices_models  # noqa: F401
+from app.domains.snapshots import models as snapshots_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

@@ -33,6 +33,7 @@ from app.application.exceptions.errors import (
     InvalidTokenError,
     NotFoundError,
     PermissionDeniedError,
+    SnapshotNotFoundError,
     UnauthorizedError,
 )
 from app.application.exceptions.translation import translate_domain_error
@@ -61,6 +62,7 @@ __all__ = [
     "InvalidTokenError",
     "NotFoundError",
     "PermissionDeniedError",
+    "SnapshotNotFoundError",
     "UnauthorizedError",
     "translate_domain_error",
 ]

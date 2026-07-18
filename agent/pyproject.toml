@@ -29,9 +29,12 @@ dev = [
 # site (app/plugins/camera/sources.py) so the rest of the agent, including its
 # test suite, runs fine on a machine without a camera or this extra installed.
 # Publishing to MediaMTX additionally requires a system `ffmpeg` binary, which
-# is not pip-installable — see docs/agent/CAMERA.md.
+# is not pip-installable — see docs/agent/CAMERA.md. `boto3` is imported
+# lazily too (app/plugins/camera/snapshot_uploader.py), same reasoning —
+# streaming needs neither it nor a camera to keep working.
 camera = [
   "opencv-python-headless>=4.9,<5",
+  "boto3>=1.35,<2",
 ]
 
 [project.scripts]
@@ -69,6 +72,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["picamera2.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

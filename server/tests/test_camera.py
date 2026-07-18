@@ -22,6 +22,7 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 
+from app.application.dto.camera_dto import CameraSnapshotDTO
 from app.application.dto.device_dto import DeviceDTO
 from app.application.events.bus import EventBus
 from app.application.exceptions import (
@@ -39,6 +40,8 @@ from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.schemas import DeviceCreate
 from app.domains.devices.service import DeviceService
+from app.domains.snapshots.repository import SnapshotRepository
+from app.domains.snapshots.service import SnapshotService
 from app.main import create_app
 
 START_RESULT = {
@@ -48,6 +51,18 @@ START_RESULT = {
     "started_at": "2026-01-01T00:00:00+00:00",
 }
 STOP_RESULT = {"duration": 12.5, "frames_sent": 375, "stopped_at": "2026-01-01T00:05:00+00:00"}
+SNAPSHOT_RESULT = {
+    "bucket": "samslab-snapshots",
+    "filename": "snapshot-20260101T000000Z.jpg",
+    "original_object_key": "originals/snapshot-20260101T000000Z.jpg",
+    "thumbnail_object_key": "thumbnails/snapshot-20260101T000000Z.jpg",
+    "etag": '"abc123"',
+    "sha256": "a" * 64,
+    "width": 1920,
+    "height": 1080,
+    "size": 204800,
+    "captured_at": "2026-01-01T00:00:00+00:00",
+}
 
 
 @pytest.fixture
@@ -404,6 +419,106 @@ async def test_get_status_reports_stopped_after_start_then_stop(
     assert status.running is False
 
 
+# --- CameraApplicationService.capture_snapshot ---------------------------------
+
+
+async def test_capture_snapshot_waits_for_completion_and_persists_metadata(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    """capture_snapshot returns metadata-only DTO and persists the full row via SnapshotService."""
+    dto, _ = await asyncio.gather(
+        camera_app_service.capture_snapshot(),
+        _complete_pending_command(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT),
+    )
+    assert isinstance(dto, CameraSnapshotDTO)
+    assert dto.device_id == device.id
+    assert dto.filename == SNAPSHOT_RESULT["filename"]
+    assert dto.width == 1920
+    assert dto.height == 1080
+    assert dto.size == 204800
+    assert dto.captured_at is not None
+
+    async with database.session_factory() as session:
+        snapshot_service = SnapshotService(SnapshotRepository(session))
+        persisted = await snapshot_service.get_snapshot(dto.id)
+    assert persisted.command_id == dto.command_id
+    assert persisted.bucket == SNAPSHOT_RESULT["bucket"]
+    assert persisted.original_object_key == SNAPSHOT_RESULT["original_object_key"]
+    assert persisted.thumbnail_object_key == SNAPSHOT_RESULT["thumbnail_object_key"]
+    assert persisted.sha256 == SNAPSHOT_RESULT["sha256"]
+
+
+async def test_capture_snapshot_without_a_registered_device_raises_not_found(
+    camera_app_service: CameraApplicationService,
+) -> None:
+    with pytest.raises(CameraDeviceNotFoundError):
+        await camera_app_service.capture_snapshot()
+
+
+async def test_capture_snapshot_raises_when_the_command_fails(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    with pytest.raises(CameraCommandFailedError):
+        await asyncio.gather(
+            camera_app_service.capture_snapshot(),
+            _complete_pending_command(
+                database, device.id, "camera.snapshot", error_message="camera not detected"
+            ),
+        )
+
+
+async def test_capture_snapshot_times_out_when_no_result_arrives(
+    database: Database,
+    event_bus: EventBus,
+    device: DeviceDTO,
+) -> None:
+    impatient_service = CameraApplicationService(
+        database=database,
+        event_bus=event_bus,
+        mediamtx_host="mediamtx.local",
+        mediamtx_playback_port=8889,
+        stream_name="camera",
+        command_timeout_seconds=2.0,
+        command_poll_interval_seconds=0.01,
+        snapshot_command_timeout_seconds=0.05,
+    )
+    with pytest.raises(CameraCommandTimedOutError):
+        await impatient_service.capture_snapshot()
+
+
+async def test_capture_snapshot_uses_its_own_timeout_not_the_stream_command_timeout(
+    database: Database,
+    event_bus: EventBus,
+    device: DeviceDTO,
+) -> None:
+    """A completion slower than start_stream's timeout still succeeds within the longer,
+    snapshot-specific timeout, proving _wait_for_terminal's timeout_seconds override is
+    actually used here rather than falling back to self._command_timeout_seconds."""
+    service = CameraApplicationService(
+        database=database,
+        event_bus=event_bus,
+        mediamtx_host="mediamtx.local",
+        mediamtx_playback_port=8889,
+        stream_name="camera",
+        command_timeout_seconds=0.05,
+        command_poll_interval_seconds=0.02,
+        snapshot_command_timeout_seconds=2.0,
+    )
+
+    async def _complete_after_delay() -> None:
+        await asyncio.sleep(0.15)
+        await _complete_pending_command(
+            database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT
+        )
+
+    dto, _ = await asyncio.gather(service.capture_snapshot(), _complete_after_delay())
+    assert dto.filename == SNAPSHOT_RESULT["filename"]
+
+
 # --- REST API -------------------------------------------------------------
 
 
@@ -544,6 +659,56 @@ async def test_api_maps_a_failed_camera_command_to_409(
             client.post("/camera/start"),
             _complete_pending_command(
                 database, device.id, "camera.stream.start", error_message="camera not detected"
+            ),
+        )
+        assert response.status_code == 409
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_captures_snapshot_and_returns_metadata_only(
+    database: Database, device: DeviceDTO
+) -> None:
+    """POST /camera/snapshot returns metadata-only fields, never a URL or bucket name."""
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/snapshot"),
+            _complete_pending_command(
+                database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT
+            ),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["device_id"] == str(device.id)
+        assert body["filename"] == SNAPSHOT_RESULT["filename"]
+        assert body["width"] == 1920
+        assert body["height"] == 1080
+        assert body["size"] == 204800
+        assert "thumbnail_url" not in body
+        assert "image_url" not in body
+        assert "bucket" not in body
+
+
+async def test_api_snapshot_returns_404_when_no_device_is_registered(database: Database) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/camera/snapshot")
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_maps_a_failed_snapshot_command_to_409(
+    database: Database, device: DeviceDTO
+) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/snapshot"),
+            _complete_pending_command(
+                database, device.id, "camera.snapshot", error_message="camera not detected"
             ),
         )
         assert response.status_code == 409

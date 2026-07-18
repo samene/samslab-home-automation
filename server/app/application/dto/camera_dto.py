@@ -8,6 +8,7 @@ server-side MediaMTX configuration (see ``CameraApplicationService``).
 from __future__ import annotations
 
 from datetime import datetime
+from uuid import UUID
 
 from pydantic import BaseModel
 
@@ -38,3 +39,22 @@ class CameraStopDTO(BaseModel):
     duration_seconds: float | None = None
     frames_sent: int | None = None
     stopped_at: datetime | None = None
+
+
+class CameraSnapshotDTO(BaseModel):
+    """Outcome of a ``camera.snapshot`` command — metadata only, never image bytes.
+
+    Deliberately has no ``thumbnail_url``/``image_url``: those are minted
+    only by ``SnapshotApplicationService`` (``GET /snapshots``,
+    ``GET /snapshots/{id}``), not here — see ``CameraApplicationService``'s
+    docstring for why ``capture_snapshot`` never touches S3 for reads.
+    """
+
+    id: UUID
+    device_id: UUID
+    command_id: UUID
+    filename: str
+    width: int
+    height: int
+    size: int
+    captured_at: datetime

@@ -11,6 +11,7 @@ dependencies = [
   "aiosqlite>=0.20,<1",
   "alembic>=1.14,<2",
   "argon2-cffi>=23.1,<24",
+  "boto3>=1.35,<2",
   "dependency-injector>=4.42,<5",
   "fastapi>=0.115,<0.128",
   "httpx>=0.28,<1",
@@ -58,6 +59,10 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = ["dependency_injector.*", "structlog.*", "uvicorn.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["boto3", "boto3.*", "botocore", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

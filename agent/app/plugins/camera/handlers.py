@@ -21,6 +21,9 @@ from app.plugins.camera.exceptions import CameraUnavailableError
 
 #: Starting the camera/ffmpeg can take longer than the default 30s on a slow Pi.
 _STREAM_START_TIMEOUT_SECONDS = 45.0
+#: Opening a fresh (non-streaming) camera session plus two S3 uploads can
+#: also exceed the default 30s, especially over a slow uplink.
+_SNAPSHOT_TIMEOUT_SECONDS = 60.0
 
 
 class CameraStreamStartHandler(CommandHandler):
@@ -130,8 +133,70 @@ class CameraStatusHandler(CommandHandler):
         }
 
 
+class CameraSnapshotHandler(CommandHandler):
+    """Captures one high-resolution still image and uploads it to S3.
+
+    Independent of streaming — see ``CameraService.capture_snapshot`` for the
+    reuse-live-session-or-open-fresh-one behavior; this handler is a thin,
+    stateless offload to it, exactly like the other three ``camera.*``
+    handlers.
+    """
+
+    @property
+    def command_type(self) -> str:
+        return "camera.snapshot"
+
+    async def validate(self, context: CommandContext, arguments: Mapping[str, Any]) -> None:
+        """No arguments are required."""
+
+    def timeout(self) -> float:
+        return _SNAPSHOT_TIMEOUT_SECONDS
+
+    async def execute(
+        self, context: CommandContext, arguments: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        camera_service = context.services.camera_service
+        loop = asyncio.get_running_loop()
+        try:
+            result = await loop.run_in_executor(None, camera_service.capture_snapshot)
+        except CameraUnavailableError as error:
+            context.logger.warning(
+                "camera_snapshot_failed",
+                command_id=str(context.command_id),
+                correlation_id=str(context.correlation_id),
+                error=str(error),
+            )
+            raise
+        context.logger.info(
+            "camera_snapshot_captured",
+            command_id=str(context.command_id),
+            correlation_id=str(context.correlation_id),
+            capture_duration=result["capture_duration"],
+            upload_duration=result["upload_duration"],
+            resolution=f"{result['width']}x{result['height']}",
+            size=result["size"],
+            bucket=result["bucket"],
+            original_object_key=result["original_object_key"],
+            thumbnail_object_key=result["thumbnail_object_key"],
+            reused_stream=result["reused_stream"],
+        )
+        return {
+            "bucket": result["bucket"],
+            "filename": result["filename"],
+            "original_object_key": result["original_object_key"],
+            "thumbnail_object_key": result["thumbnail_object_key"],
+            "etag": result["etag"],
+            "sha256": result["sha256"],
+            "width": result["width"],
+            "height": result["height"],
+            "size": result["size"],
+            "captured_at": result["captured_at"],
+        }
+
+
 def register_camera_handlers(registry: CommandRegistry) -> None:
     """Register every ``camera.*`` handler onto ``registry``."""
     registry.register(CameraStreamStartHandler())
     registry.register(CameraStreamStopHandler())
     registry.register(CameraStatusHandler())
+    registry.register(CameraSnapshotHandler())

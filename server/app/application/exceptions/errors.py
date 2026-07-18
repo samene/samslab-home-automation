@@ -114,3 +114,10 @@ class CameraCommandFailedError(ConflictError):
 
 class CameraCommandTimedOutError(ConflictError):
     """Raised when a ``camera.stream.*`` command does not reach a terminal state in time."""
+
+
+# --- Snapshot use cases --------------------------------------------------------
+
+
+class SnapshotNotFoundError(NotFoundError):
+    """Raised when a referenced snapshot does not exist."""

@@ -1,8 +1,13 @@
-import type { CameraStatusDTO, CameraStopDTO } from "@/types/api";
+import type { CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO } from "@/types/api";
 import { apiClient } from "./client";
 
 export async function startCameraStream(): Promise<CameraStatusDTO> {
   const response = await apiClient.post<CameraStatusDTO>("/camera/start");
+  return response.data;
+}
+
+export async function takeSnapshot(): Promise<CameraSnapshotDTO> {
+  const response = await apiClient.post<CameraSnapshotDTO>("/camera/snapshot");
   return response.data;
 }
 

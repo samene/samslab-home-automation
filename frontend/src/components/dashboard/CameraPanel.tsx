@@ -1,5 +1,5 @@
 import Hls from "hls.js";
-import { Maximize2, Signal, SignalLow, Square, Video } from "lucide-react";
+import { Camera, Maximize2, Signal, SignalLow, Square, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -137,6 +137,8 @@ interface CameraPanelProps {
   isStopping: boolean;
   onGoLive: () => void;
   onStop: () => void;
+  onTakeSnapshot: () => void;
+  isTakingSnapshot: boolean;
 }
 
 /** Always present (col 2-3 of the dashboard grid); toggled on/off by its own full-width button. */
@@ -147,6 +149,8 @@ export function CameraPanel({
   isStopping,
   onGoLive,
   onStop,
+  onTakeSnapshot,
+  isTakingSnapshot,
 }: CameraPanelProps) {
   const { data: polledStatus, isError } = useCameraStatus({ enabled: cameraStatus?.running === true });
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -239,6 +243,20 @@ export function CameraPanel({
           </>
         )}
       </Button>
+
+      {isActive ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="w-full shrink-0 rounded-none border-0 border-t border-border py-4 text-xs font-medium"
+          disabled={isTakingSnapshot}
+          onClick={onTakeSnapshot}
+        >
+          <Camera className="size-3.5" />
+          {isTakingSnapshot ? "Capturing…" : "Take Snapshot"}
+        </Button>
+      ) : null}
     </div>
   );
 }

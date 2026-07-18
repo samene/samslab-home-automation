@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { formatDuration, formatRelativeTime, formatTimestamp, getThumbnailUrl } from "./format";
+import {
+  formatDuration,
+  formatFileSize,
+  formatRelativeTime,
+  formatTimestamp,
+  friendlyCommandLabel,
+  getThumbnailUrl,
+} from "./format";
 
 describe("formatTimestamp", () => {
   it("returns an em dash for null/undefined", () => {
@@ -69,5 +76,29 @@ describe("getThumbnailUrl", () => {
 
   it("falls back to image_url", () => {
     expect(getThumbnailUrl({ image_url: "b.jpg" })).toBe("b.jpg");
+  });
+});
+
+describe("formatFileSize", () => {
+  it("formats bytes below 1024 as B", () => {
+    expect(formatFileSize(512)).toBe("512 B");
+  });
+
+  it("formats kilobytes", () => {
+    expect(formatFileSize(340 * 1024)).toBe("340 KB");
+  });
+
+  it("formats megabytes with one decimal place", () => {
+    expect(formatFileSize(1.2 * 1024 * 1024)).toBe("1.2 MB");
+  });
+});
+
+describe("friendlyCommandLabel", () => {
+  it("maps camera.snapshot to a friendly label", () => {
+    expect(friendlyCommandLabel("camera.snapshot")).toBe("Snapshot Captured");
+  });
+
+  it("falls back to the raw command type when unmapped", () => {
+    expect(friendlyCommandLabel("pump.start")).toBe("pump.start");
   });
 });

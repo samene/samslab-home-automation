@@ -30,11 +30,12 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.dto.camera_dto import CameraStatusDTO, CameraStopDTO
+from app.application.dto.camera_dto import CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO
 from app.application.dto.command_dto import CommandDetailDTO
 from app.application.events.bus import EventBus
 from app.application.exceptions import (
@@ -42,6 +43,7 @@ from app.application.exceptions import (
     CameraCommandTimedOutError,
     CameraDeviceNotFoundError,
 )
+from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
 from app.core.database import Database
@@ -52,9 +54,13 @@ from app.domains.commands.schemas import CommandCreate
 from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.service import DeviceService
+from app.domains.snapshots.models import Snapshot
+from app.domains.snapshots.repository import SnapshotRepository
+from app.domains.snapshots.service import SnapshotService
 
 CAMERA_STREAM_START = "camera.stream.start"
 CAMERA_STREAM_STOP = "camera.stream.stop"
+CAMERA_SNAPSHOT = "camera.snapshot"
 
 
 class CameraApplicationService:
@@ -74,6 +80,7 @@ class CameraApplicationService:
         stream_name: str,
         command_timeout_seconds: float,
         command_poll_interval_seconds: float,
+        snapshot_command_timeout_seconds: float = 60.0,
     ) -> None:
         """Bind to the shared database/event bus and the MediaMTX playback configuration."""
         self._database = database
@@ -87,6 +94,7 @@ class CameraApplicationService:
         self._stream_name = stream_name
         self._command_timeout_seconds = command_timeout_seconds
         self._command_poll_interval_seconds = command_poll_interval_seconds
+        self._snapshot_command_timeout_seconds = snapshot_command_timeout_seconds
 
     async def start_stream(self) -> CameraStatusDTO:
         """Issue ``camera.stream.start`` and wait for the device to confirm it's live."""
@@ -154,6 +162,52 @@ class CameraApplicationService:
             uptime_seconds=uptime_seconds,
             viewer_count=0,
         )
+
+    async def capture_snapshot(self) -> CameraSnapshotDTO:
+        """Issue ``camera.snapshot``, wait for it to complete, and persist its metadata.
+
+        Independent of streaming — see ``docs/agent/CAMERA.md`` and
+        ``CameraService.capture_snapshot`` (agent-side) for the
+        reuse-live-session-or-open-fresh-one behavior this command triggers.
+        Waits longer than ``start_stream``/``stop_stream`` (see
+        ``_snapshot_command_timeout_seconds``) since a standalone capture may
+        need to open the camera, capture, encode, and upload two files to S3
+        before it completes. Never touches S3 itself — only
+        ``SnapshotApplicationService`` (``GET /snapshots``) ever mints a
+        presigned URL for the resulting image.
+        """
+        device_id = await self._require_primary_device_id()
+        command_id = await self._create_command(device_id, CAMERA_SNAPSHOT)
+        completed = await self._wait_for_terminal(
+            command_id, timeout_seconds=self._snapshot_command_timeout_seconds
+        )
+        result = completed.result.result if completed.result else {}
+        snapshot = await self._record_snapshot(device_id, command_id, result)
+        return to_camera_snapshot_dto(snapshot)
+
+    async def _record_snapshot(
+        self, device_id: UUID, command_id: UUID, result: dict[str, Any]
+    ) -> Snapshot:
+        """Persist a completed ``camera.snapshot`` command's result as snapshot metadata."""
+        async with self._database.session_factory() as session:
+            service = SnapshotService(SnapshotRepository(session))
+            snapshot = await service.record_snapshot(
+                device_id=device_id,
+                command_id=command_id,
+                filename=str(result["filename"]),
+                bucket=str(result["bucket"]),
+                original_object_key=str(result["original_object_key"]),
+                thumbnail_object_key=str(result["thumbnail_object_key"]),
+                etag=result.get("etag") if isinstance(result.get("etag"), str) else None,
+                sha256=str(result["sha256"]),
+                width=int(result["width"]),
+                height=int(result["height"]),
+                size=int(result["size"]),
+                captured_at=self._parse_timestamp(result.get("captured_at"))
+                or datetime.now(UTC),
+            )
+            await session.commit()
+            return snapshot
 
     # --- per-operation session helpers, mirroring app/dispatcher/dispatcher.py's CommandGateway ---
 
@@ -223,9 +277,20 @@ class CameraApplicationService:
             await session.commit()
             return command
 
-    async def _wait_for_terminal(self, command_id: UUID) -> CommandDetailDTO:
-        """Poll a command until it reaches a terminal state, or raise once the wait expires."""
-        deadline = time.monotonic() + self._command_timeout_seconds
+    async def _wait_for_terminal(
+        self, command_id: UUID, *, timeout_seconds: float | None = None
+    ) -> CommandDetailDTO:
+        """Poll a command until it reaches a terminal state, or raise once the wait expires.
+
+        ``timeout_seconds`` defaults to ``self._command_timeout_seconds`` (the
+        existing ``start_stream``/``stop_stream`` behavior); ``capture_snapshot``
+        passes a longer, snapshot-specific timeout since camera init + capture
+        + two S3 uploads can take longer than a plain stream toggle.
+        """
+        effective_timeout = (
+            timeout_seconds if timeout_seconds is not None else self._command_timeout_seconds
+        )
+        deadline = time.monotonic() + effective_timeout
         while True:
             command = await self._get_command(command_id)
             if command.status in TERMINAL_STATUSES:
@@ -236,7 +301,7 @@ class CameraApplicationService:
                 return command
             if time.monotonic() >= deadline:
                 raise CameraCommandTimedOutError(
-                    f"Command {command_id} did not complete within {self._command_timeout_seconds}s"
+                    f"Command {command_id} did not complete within {effective_timeout}s"
                 )
             await asyncio.sleep(self._command_poll_interval_seconds)
 
