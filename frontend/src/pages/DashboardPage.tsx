@@ -5,6 +5,7 @@ import { DeviceHeroCard } from "@/components/dashboard/DeviceHeroCard";
 import { QuickSnapshotCard } from "@/components/dashboard/QuickSnapshotCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RecentSnapshots } from "@/components/dashboard/RecentSnapshots";
+import { RecentWorkflows } from "@/components/dashboard/RecentWorkflows";
 import { SystemStatusPanel } from "@/components/dashboard/SystemStatusPanel";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Card } from "@/components/ui/card";
@@ -76,6 +77,7 @@ export function DashboardPage() {
             onStopWatering={() => setPendingCommandType(PUMP_STOP)}
           />
           <QuickSnapshotCard hasDevice={Boolean(device)} />
+          <RecentWorkflows />
         </div>
 
         <div className="min-h-64 lg:col-span-2 lg:col-start-2 lg:min-h-0">

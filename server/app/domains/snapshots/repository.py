@@ -44,6 +44,13 @@ class SnapshotRepository:
         )
         return list(result.scalars()), count or 0
 
+    async def find_by_workflow_id(self, workflow_id: UUID) -> list[Snapshot]:
+        """Return every snapshot a given workflow's runs have ever produced."""
+        result = await self._session.execute(
+            select(Snapshot).where(Snapshot.workflow_id == workflow_id)
+        )
+        return list(result.scalars())
+
     async def delete(self, snapshot: Snapshot) -> None:
         """Hard-delete a snapshot row — a real S3 object is being removed, not archived."""
         await self._session.delete(snapshot)

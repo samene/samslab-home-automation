@@ -10,6 +10,8 @@ import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SnapshotsPage } from "@/pages/SnapshotsPage";
+import { WorkflowEditorPage } from "@/pages/WorkflowEditorPage";
+import { WorkflowsPage } from "@/pages/WorkflowsPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +55,36 @@ export function App() {
                   <ProtectedRoute>
                     <AppShell>
                       <SnapshotsPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workflows"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <WorkflowsPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workflows/new"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <WorkflowEditorPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/workflows/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <WorkflowEditorPage />
                     </AppShell>
                   </ProtectedRoute>
                 }

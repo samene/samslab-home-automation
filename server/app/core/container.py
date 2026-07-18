@@ -4,6 +4,7 @@ from dependency_injector import containers, providers
 
 from app.application.events.bus import EventBus
 from app.application.events.logging_subscriber import register_logging_subscriber
+from app.application.services.workflow_run_registry import WorkflowRunRegistry
 from app.config.settings import Settings
 from app.core.database import Database
 from app.core.mediamtx_jwt import build_mediamtx_jwt_signer
@@ -24,6 +25,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
     database = providers.Object(None)  # type: ignore[var-annotated]
     event_bus = providers.Singleton(EventBus)
     session_manager = providers.Singleton(SessionManager)
+    workflow_run_registry = providers.Singleton(WorkflowRunRegistry)
     mediamtx_jwt_signer = providers.Singleton(build_mediamtx_jwt_signer, settings=settings)
     s3_client = providers.Singleton(build_s3_client, settings=settings)
     dispatcher = providers.Singleton(

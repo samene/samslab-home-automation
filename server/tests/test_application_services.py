@@ -57,6 +57,9 @@ from app.domains.snapshots.exceptions import SnapshotNotFound
 from app.domains.snapshots.models import Snapshot
 from app.domains.snapshots.repository import SnapshotRepository
 from app.domains.snapshots.service import SnapshotService
+from app.domains.workflows.repository import WorkflowRepository
+from app.domains.workflows.schemas import WorkflowCreate
+from app.domains.workflows.service import WorkflowService
 
 
 @pytest.fixture
@@ -766,6 +769,88 @@ async def test_snapshot_service_delete_snapshot_translates_not_found(session: As
     service = _snapshot_app_service(session, s3_client=None)
     with pytest.raises(SnapshotNotFoundError):
         await service.delete_snapshot(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_get_snapshot_resolves_workflow_name_when_present(
+    session: AsyncSession, seeded_snapshot: Snapshot
+) -> None:
+    """A workflow-linked snapshot's DTO carries the originating workflow's current name."""
+    workflow_service = WorkflowService(WorkflowRepository(session))
+    workflow = await workflow_service.register_workflow(WorkflowCreate(name="Nightly patrol"))
+    second_command = await CommandRepository(session).create(
+        Command(
+            device_id=seeded_snapshot.device_id, command_type="camera.snapshot", payload={}
+        )
+    )
+    await SnapshotService(SnapshotRepository(session)).record_snapshot(
+        device_id=seeded_snapshot.device_id,
+        command_id=second_command.id,
+        filename="linked.jpg",
+        bucket="samslab-snapshots",
+        original_object_key="originals/linked.jpg",
+        thumbnail_object_key="thumbnails/linked.jpg",
+        etag='"def456"',
+        sha256="b" * 64,
+        width=1920,
+        height=1080,
+        size=204800,
+        captured_at=datetime.now(UTC),
+        workflow_id=workflow.id,
+        workflow_run_id=uuid4(),
+    )
+    service = SnapshotApplicationService(
+        SnapshotService(SnapshotRepository(session)),
+        s3_client=None,
+        presigned_url_ttl_seconds=300.0,
+        workflow_service=workflow_service,
+    )
+
+    page = await service.list_snapshots(device_id=None, offset=0, limit=10)
+
+    linked = next(item for item in page.items if item.filename == "linked.jpg")
+    assert linked.workflow_id == workflow.id
+    assert linked.workflow_name == "Nightly patrol"
+    unlinked = next(item for item in page.items if item.id == seeded_snapshot.id)
+    assert unlinked.workflow_id is None
+    assert unlinked.workflow_name is None
+
+
+@pytest.mark.asyncio
+async def test_snapshot_service_workflow_name_is_none_without_a_workflow_service(
+    session: AsyncSession,
+) -> None:
+    """Omitting workflow_service (the delete-cascade path) never resolves a name."""
+    workflow_service = WorkflowService(WorkflowRepository(session))
+    workflow = await workflow_service.register_workflow(WorkflowCreate(name="Nightly patrol"))
+    device = await DeviceService(DeviceRepository(session)).register_device(
+        DeviceCreate.model_validate(device_payload())
+    )
+    command = await CommandRepository(session).create(
+        Command(device_id=device.id, command_type="camera.snapshot", payload={})
+    )
+    await SnapshotService(SnapshotRepository(session)).record_snapshot(
+        device_id=device.id,
+        command_id=command.id,
+        filename="linked.jpg",
+        bucket="samslab-snapshots",
+        original_object_key="originals/linked.jpg",
+        thumbnail_object_key="thumbnails/linked.jpg",
+        etag='"def456"',
+        sha256="b" * 64,
+        width=1920,
+        height=1080,
+        size=204800,
+        captured_at=datetime.now(UTC),
+        workflow_id=workflow.id,
+        workflow_run_id=uuid4(),
+    )
+    service = _snapshot_app_service(session, s3_client=None)
+
+    dto = await service.list_snapshots(device_id=None, offset=0, limit=10)
+
+    assert dto.items[0].workflow_id == workflow.id
+    assert dto.items[0].workflow_name is None
 
 
 @pytest.mark.asyncio

@@ -30,6 +30,11 @@ export function SnapshotCard({ snapshot, deviceName, onClick }: SnapshotCardProp
         <p className="text-[11px] text-muted-foreground">
           {snapshot.width}x{snapshot.height} · {formatFileSize(snapshot.size)}
         </p>
+        {snapshot.workflow_name && (
+          <p className="truncate text-[11px] text-muted-foreground italic">
+            Created by workflow &ldquo;{snapshot.workflow_name}&rdquo;
+          </p>
+        )}
       </div>
     </button>
   );

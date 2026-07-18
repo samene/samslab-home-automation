@@ -19,6 +19,8 @@ from app.core.database import Database
 from app.dependencies import get_database
 from app.domains.snapshots.repository import SnapshotRepository
 from app.domains.snapshots.service import SnapshotService
+from app.domains.workflows.repository import WorkflowRepository
+from app.domains.workflows.service import WorkflowService
 
 router = APIRouter(prefix="/snapshots", tags=["Snapshots"])
 
@@ -35,6 +37,7 @@ async def get_snapshot_application_service(
                 SnapshotService(SnapshotRepository(session)),
                 s3_client=request.app.state.container.s3_client(),
                 presigned_url_ttl_seconds=settings.aws_presigned_url_ttl_seconds,
+                workflow_service=WorkflowService(WorkflowRepository(session)),
             )
             await session.commit()
         except Exception:

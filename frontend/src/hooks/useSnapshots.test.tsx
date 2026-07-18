@@ -25,6 +25,8 @@ const SNAPSHOT: SnapshotDTO = {
   captured_at: "2026-01-15T10:00:00Z",
   created_at: "2026-01-15T10:00:01Z",
   metadata: {},
+  workflow_id: null,
+  workflow_name: null,
 };
 
 function wrapper({ children }: { children: ReactNode }) {

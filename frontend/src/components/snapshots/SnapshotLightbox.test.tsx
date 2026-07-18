@@ -1,5 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useDeleteSnapshot, useSnapshot } from "@/hooks/useSnapshots";
 import type { SnapshotDTO } from "@/types/api";
@@ -25,6 +26,8 @@ const SNAPSHOT: SnapshotDTO = {
   captured_at: "2026-01-15T10:00:00Z",
   created_at: "2026-01-15T10:00:01Z",
   metadata: {},
+  workflow_id: null,
+  workflow_name: null,
 };
 
 describe("SnapshotLightbox", () => {
@@ -91,5 +94,31 @@ describe("SnapshotLightbox", () => {
 
     expect(mutateAsync).toHaveBeenCalledWith("snap-1");
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("shows a linked 'created by workflow' note when workflow_name is present", () => {
+    mockedUseSnapshot.mockReturnValue({
+      data: { ...SNAPSHOT, workflow_id: "wf-1", workflow_name: "Nightly patrol" },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useSnapshot>);
+
+    render(
+      <MemoryRouter>
+        <SnapshotLightbox snapshotId="snap-1" onOpenChange={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    const link = screen.getByRole("link", { name: "Nightly patrol" });
+    expect(link).toHaveAttribute("href", "/workflows/wf-1/edit");
+  });
+
+  it("shows no workflow note when workflow_name is absent", () => {
+    mockedUseSnapshot.mockReturnValue({ data: SNAPSHOT, isLoading: false } as unknown as ReturnType<
+      typeof useSnapshot
+    >);
+
+    render(<SnapshotLightbox snapshotId="snap-1" onOpenChange={vi.fn()} />);
+
+    expect(screen.queryByText(/Created by workflow/)).not.toBeInTheDocument();
   });
 });

@@ -34,8 +34,15 @@ class SnapshotService:
         size: int,
         captured_at: datetime,
         metadata: dict[str, Any] | None = None,
+        workflow_id: UUID | None = None,
+        workflow_run_id: UUID | None = None,
     ) -> Snapshot:
-        """Persist metadata for one already-uploaded snapshot; never touches S3."""
+        """Persist metadata for one already-uploaded snapshot; never touches S3.
+
+        ``workflow_id``/``workflow_run_id`` are set only when this snapshot
+        was captured by a Workflow's Command Task rather than directly from
+        the Dashboard — see ``app/application/services/command_artifacts.py``.
+        """
         snapshot = Snapshot(
             device_id=device_id,
             command_id=command_id,
@@ -50,6 +57,8 @@ class SnapshotService:
             size=size,
             captured_at=captured_at,
             metadata_=metadata or {},
+            workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
         )
         return await self._repository.create(snapshot)
 
@@ -65,6 +74,10 @@ class SnapshotService:
     ) -> tuple[list[Snapshot], int]:
         """List snapshots newest-first, optionally scoped to one device."""
         return await self._repository.find_all(device_id=device_id, offset=offset, limit=limit)
+
+    async def find_by_workflow_id(self, workflow_id: UUID) -> list[Snapshot]:
+        """Return every snapshot a given workflow's runs have ever produced."""
+        return await self._repository.find_by_workflow_id(workflow_id)
 
     async def delete_snapshot(self, snapshot_id: UUID) -> Snapshot:
         """Hard-delete a snapshot row, returning the deleted entity for S3 cleanup."""

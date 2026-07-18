@@ -48,3 +48,15 @@ class Snapshot(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", json_type, default=dict)
+    # Both nullable, no cascade — same cross-domain convention as device_id/
+    # command_id above. Never null-check-and-orphan on delete: workflows and
+    # workflow_runs are only ever soft-deleted by this app's own code, so
+    # these FKs never dangle. Populated only for a snapshot captured by a
+    # Workflow's Command Task (never for one taken directly from the
+    # Dashboard) — see app/application/services/command_artifacts.py.
+    workflow_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflows.id"), nullable=True, index=True
+    )
+    workflow_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("workflow_runs.id"), nullable=True, index=True
+    )

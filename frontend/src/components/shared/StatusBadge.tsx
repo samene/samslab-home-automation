@@ -1,6 +1,11 @@
 import { Badge, type badgeVariants } from "@/components/ui/badge";
 import type { VariantProps } from "class-variance-authority";
-import type { CommandStatus, DeviceStatus } from "@/types/api";
+import type {
+  CommandStatus,
+  DeviceStatus,
+  WorkflowRunStatus,
+  WorkflowStepRunStatus,
+} from "@/types/api";
 
 type BadgeVariant = VariantProps<typeof badgeVariants>["variant"];
 
@@ -26,6 +31,20 @@ const COMMAND_STATUS_VARIANT: Record<CommandStatus, BadgeVariant> = {
   TIMEOUT: "warning",
 };
 
+const WORKFLOW_RUN_STATUS_VARIANT: Record<WorkflowRunStatus, BadgeVariant> = {
+  RUNNING: "default",
+  COMPLETED: "success",
+  FAILED: "destructive",
+};
+
+const WORKFLOW_STEP_RUN_STATUS_VARIANT: Record<WorkflowStepRunStatus, BadgeVariant> = {
+  PENDING: "secondary",
+  RUNNING: "default",
+  COMPLETED: "success",
+  FAILED: "destructive",
+  CANCELLED: "outline",
+};
+
 function toTitleCase(value: string) {
   return value.charAt(0) + value.slice(1).toLowerCase();
 }
@@ -47,6 +66,34 @@ export function CommandStatusBadge({
 }) {
   return (
     <Badge variant={COMMAND_STATUS_VARIANT[status]} className={className}>
+      {toTitleCase(status)}
+    </Badge>
+  );
+}
+
+export function WorkflowRunStatusBadge({
+  status,
+  className,
+}: {
+  status: WorkflowRunStatus;
+  className?: string;
+}) {
+  return (
+    <Badge variant={WORKFLOW_RUN_STATUS_VARIANT[status]} className={className}>
+      {toTitleCase(status)}
+    </Badge>
+  );
+}
+
+export function WorkflowStepRunStatusBadge({
+  status,
+  className,
+}: {
+  status: WorkflowStepRunStatus;
+  className?: string;
+}) {
+  return (
+    <Badge variant={WORKFLOW_STEP_RUN_STATUS_VARIANT[status]} className={className}>
       {toTitleCase(status)}
     </Badge>
   );

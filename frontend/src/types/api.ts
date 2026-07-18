@@ -224,6 +224,8 @@ export interface SnapshotDTO {
   captured_at: string;
   created_at: string;
   metadata: Record<string, unknown>;
+  workflow_id: string | null;
+  workflow_name: string | null;
 }
 
 export interface SnapshotPageDTO {
@@ -231,6 +233,82 @@ export interface SnapshotPageDTO {
   total: number;
   offset: number;
   limit: number;
+}
+
+export type WorkflowStepType = "COMMAND" | "SLEEP" | "GROUP";
+export type WorkflowGroupMode = "SERIAL" | "PARALLEL";
+export type WorkflowRunStatus = "RUNNING" | "COMPLETED" | "FAILED";
+export type WorkflowStepRunStatus = "PENDING" | "RUNNING" | "COMPLETED" | "FAILED" | "CANCELLED";
+
+export interface WorkflowStepDTO {
+  id: string;
+  step_type: WorkflowStepType;
+  command_type: string | null;
+  sleep_seconds: number | null;
+  group_mode: WorkflowGroupMode | null;
+  children: WorkflowStepDTO[];
+}
+
+export interface WorkflowDTO {
+  id: string;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  run_count: number;
+  last_run_at: string | null;
+  last_run_status: WorkflowRunStatus | null;
+  last_run_duration_ms: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkflowPageDTO {
+  items: WorkflowDTO[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface WorkflowStepRunDTO {
+  id: string | null;
+  workflow_step_id: string;
+  step_type: WorkflowStepType;
+  status: WorkflowStepRunStatus;
+  started_at: string | null;
+  completed_at: string | null;
+  command_id: string | null;
+  error_message: string | null;
+  children: WorkflowStepRunDTO[];
+}
+
+export interface WorkflowRunDTO {
+  id: string;
+  workflow_id: string;
+  status: WorkflowRunStatus;
+  started_at: string;
+  completed_at: string | null;
+  error_message: string | null;
+  step_runs: WorkflowStepRunDTO[];
+}
+
+export interface WorkflowDetailDTO extends WorkflowDTO {
+  steps: WorkflowStepDTO[];
+  latest_run: WorkflowRunDTO | null;
+}
+
+export interface WorkflowStepCreateRequest {
+  step_type: WorkflowStepType;
+  command_type?: string | null;
+  sleep_seconds?: number | null;
+  group_mode?: WorkflowGroupMode | null;
+  children?: WorkflowStepCreateRequest[];
+}
+
+export interface WorkflowCreateRequest {
+  name: string;
+  description?: string | null;
+  enabled?: boolean;
+  steps: WorkflowStepCreateRequest[];
 }
 
 export interface ApiProblem {

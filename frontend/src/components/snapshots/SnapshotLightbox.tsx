@@ -1,5 +1,6 @@
 import { Download, Trash2 } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -63,6 +64,18 @@ export function SnapshotLightbox({ snapshotId, onOpenChange }: SnapshotLightboxP
                   <dd className="font-medium">{formatFileSize(snapshot.size)}</dd>
                 </div>
               </dl>
+
+              {snapshot.workflow_name && (
+                <p className="text-xs italic text-muted-foreground">
+                  Created by workflow{" "}
+                  <Link
+                    to={`/workflows/${snapshot.workflow_id}/edit`}
+                    className="not-italic underline hover:text-foreground"
+                  >
+                    {snapshot.workflow_name}
+                  </Link>
+                </p>
+              )}
 
               <div className="flex justify-between gap-2">
                 <Button variant="outline" asChild>

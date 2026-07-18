@@ -121,3 +121,26 @@ class CameraCommandTimedOutError(ConflictError):
 
 class SnapshotNotFoundError(NotFoundError):
     """Raised when a referenced snapshot does not exist."""
+
+
+# --- Workflow use cases ---------------------------------------------------------
+
+
+class WorkflowNotFoundError(NotFoundError):
+    """Raised when a referenced workflow does not exist."""
+
+
+class WorkflowDisabledError(ConflictError):
+    """Raised when a run is requested for a workflow that is currently disabled."""
+
+
+class WorkflowDeviceNotFoundError(NotFoundError):
+    """Raised when no registered device exists to target a Command Task at."""
+
+
+class WorkflowStepFailedError(ConflictError):
+    """Raised when a Command Task's underlying command does not complete successfully."""
+
+
+class WorkflowStepTimedOutError(ConflictError):
+    """Raised when a Command Task's underlying command does not reach a terminal state in time."""

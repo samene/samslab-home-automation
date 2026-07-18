@@ -27,6 +27,7 @@ from app.application.exceptions import (
 )
 from app.config.settings import Settings
 from app.core.container import ApplicationContainer, build_container
+from app.core.database import Database
 from app.core.problems import (
     ProblemDetails,
     http_exception_handler,
@@ -36,6 +37,9 @@ from app.domains.auth.api import router as auth_router
 from app.domains.commands.api import router as commands_router
 from app.domains.devices.api import router as devices_router
 from app.domains.snapshots.api import router as snapshots_router
+from app.domains.workflows.api import router as workflows_router
+from app.domains.workflows.repository import WorkflowRepository
+from app.domains.workflows.service import WorkflowService
 from app.logging.configure import configure_logging
 from app.logging.context import get_request_context
 from app.middleware.request_context import RequestContextMiddleware
@@ -52,6 +56,22 @@ def _openapi_servers(settings: Settings) -> list[dict[str, str]]:
     ]
 
 
+async def _reconcile_interrupted_workflow_runs(database: Database) -> None:
+    """Fail any ``workflow_runs`` row left RUNNING by a previous process's crash/restart.
+
+    The ``asyncio.Task`` that was driving it does not survive the process,
+    even though the DB row does — without this, such a run would show
+    "running" forever in the list and live Execution Status views.
+    """
+    logger = structlog.get_logger("app.lifecycle")
+    async with database.session_factory() as session:
+        service = WorkflowService(WorkflowRepository(session))
+        reconciled_count = await service.reconcile_interrupted_runs()
+        await session.commit()
+    if reconciled_count:
+        logger.warning("workflow_runs_reconciled", count=reconciled_count)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and cleanly release application-owned foundation resources."""
@@ -59,6 +79,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     configure_logging(settings)
     logger = structlog.get_logger("app.lifecycle")
     logger.info("application_starting", server_name=settings.server_name)
+    database = app.state.container.database()
+    if database is not None:
+        await _reconcile_interrupted_workflow_runs(database)
     dispatcher = app.state.container.dispatcher()
     await dispatcher.start()
     try:
@@ -68,7 +91,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         session_manager = app.state.container.session_manager()
         await session_manager.close_all()
         await session_manager.wait_closed()
-        database = app.state.container.database()
+        workflow_run_registry = app.state.container.workflow_run_registry()
+        await workflow_run_registry.wait_closed(timeout=settings.workflow_run_shutdown_wait_seconds)
         if database is not None:
             await database.dispose()
         app.state.container.shutdown_resources()
@@ -207,6 +231,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "short-lived presigned URLs on read."
                 ),
             },
+            {
+                "name": "Workflows",
+                "description": (
+                    "Ordered, reusable sequences of existing commands (plus pure "
+                    "delays), executed serially or in parallel groups entirely "
+                    "through the Command Framework. No task ever touches hardware "
+                    "directly."
+                ),
+            },
         ],
         lifespan=lifespan,
     )
@@ -227,6 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(dispatcher_router)
     application.include_router(camera_router)
     application.include_router(snapshots_router)
+    application.include_router(workflows_router)
     application.include_router(mediamtx_jwks_router)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)

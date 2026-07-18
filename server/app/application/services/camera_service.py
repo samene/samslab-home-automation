@@ -30,7 +30,6 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import UTC, datetime
-from typing import Any
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +43,7 @@ from app.application.exceptions import (
     CameraDeviceNotFoundError,
 )
 from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto
+from app.application.services.command_artifacts import record_snapshot_from_command
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
 from app.core.database import Database
@@ -54,9 +54,6 @@ from app.domains.commands.schemas import CommandCreate
 from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.service import DeviceService
-from app.domains.snapshots.models import Snapshot
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
 
 CAMERA_STREAM_START = "camera.stream.start"
 CAMERA_STREAM_STOP = "camera.stream.stop"
@@ -182,32 +179,20 @@ class CameraApplicationService:
             command_id, timeout_seconds=self._snapshot_command_timeout_seconds
         )
         result = completed.result.result if completed.result else {}
-        snapshot = await self._record_snapshot(device_id, command_id, result)
+        # workflow_run_id=None: this call always originates from a direct
+        # Dashboard action, never a Workflow's Command Task — see
+        # WorkflowApplicationService._execute_command_step for the other
+        # caller of this same shared helper.
+        snapshot = await record_snapshot_from_command(
+            self._database,
+            command_type=CAMERA_SNAPSHOT,
+            device_id=device_id,
+            command_id=command_id,
+            result=result,
+            workflow_run_id=None,
+        )
+        assert snapshot is not None  # CAMERA_SNAPSHOT always produces one
         return to_camera_snapshot_dto(snapshot)
-
-    async def _record_snapshot(
-        self, device_id: UUID, command_id: UUID, result: dict[str, Any]
-    ) -> Snapshot:
-        """Persist a completed ``camera.snapshot`` command's result as snapshot metadata."""
-        async with self._database.session_factory() as session:
-            service = SnapshotService(SnapshotRepository(session))
-            snapshot = await service.record_snapshot(
-                device_id=device_id,
-                command_id=command_id,
-                filename=str(result["filename"]),
-                bucket=str(result["bucket"]),
-                original_object_key=str(result["original_object_key"]),
-                thumbnail_object_key=str(result["thumbnail_object_key"]),
-                etag=result.get("etag") if isinstance(result.get("etag"), str) else None,
-                sha256=str(result["sha256"]),
-                width=int(result["width"]),
-                height=int(result["height"]),
-                size=int(result["size"]),
-                captured_at=self._parse_timestamp(result.get("captured_at"))
-                or datetime.now(UTC),
-            )
-            await session.commit()
-            return snapshot
 
     # --- per-operation session helpers, mirroring app/dispatcher/dispatcher.py's CommandGateway ---
 

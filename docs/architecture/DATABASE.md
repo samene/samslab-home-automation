@@ -72,6 +72,19 @@ The `snapshots` table is implemented and migrated (`alembic/versions/20260718_00
 
 Only object keys are stored — `bucket`/`original_object_key`/`thumbnail_object_key` — never a URL. `GET /snapshots`/`GET /snapshots/{id}` mint a fresh, short-lived presigned S3 URL on every response (`AWS_PRESIGNED_URL_TTL_SECONDS`); nothing about a snapshot's *readable* location is ever persisted, so a bucket/CDN migration never requires a data migration, only a settings change. Indexes cover `device_id`, `command_id`, and `captured_at` (the Gallery's newest-first sort key). See [Camera](../agent/CAMERA.md) for the full capture → upload → persist → presigned-read flow.
 
+### Workflows (implemented)
+
+The `workflows`, `workflow_steps`, `workflow_runs`, and `workflow_step_runs` tables are implemented and migrated (`alembic/versions/20260719_0005_create_workflows_domain.py`, chained after the Snapshots migration), since `workflow_step_runs.command_id` is a foreign key to `commands.id`.
+
+| Table | Columns | Notes |
+| --- | --- | --- |
+| `workflows` | `id` (UUID PK), `name`, `description`, `enabled`, `run_count`, `last_run_at`, `last_run_status`, `last_run_duration_ms`, `created_at`, `updated_at`, `deleted_at` | Soft-deleted, like Devices/Commands — a workflow's run history stays auditable. `run_count`/`last_run_*` are denormalized so the list page never joins across every workflow's runs just to render them |
+| `workflow_steps` | `id` (UUID PK), `workflow_id` (FK → `workflows.id`), `parent_step_id` (nullable, self-FK → `workflow_steps.id`), `position`, `step_type` (`COMMAND`/`SLEEP`/`GROUP`), `command_type`, `sleep_seconds`, `group_mode` (`SERIAL`/`PARALLEL`, GROUP only) | A step tree stored flat, one row per node, ordered by `position` within each `parent_step_id`; nesting is arbitrarily deep via `parent_step_id` alone — no depth limit at the schema level, even though the v1 editor UI only builds one level of Parallel Group. No ORM relationship walks the tree; the application layer's mapper reassembles it in Python from one flat, ordered query |
+| `workflow_runs` | `id` (UUID PK), `workflow_id` (FK → `workflows.id`), `status` (`RUNNING`/`COMPLETED`/`FAILED`), `started_at`, `completed_at`, `error_message` | One row per execution — the audit/outcome trail, analogous to `command_results` sitting alongside `commands`. Not a "Job" abstraction: scoped tightly to one `workflow_id`, no independent API surface |
+| `workflow_step_runs` | `id` (UUID PK), `workflow_run_id` (FK → `workflow_runs.id`), `workflow_step_id` (FK → `workflow_steps.id`), `status` (`PENDING`/`RUNNING`/`COMPLETED`/`FAILED`/`CANCELLED`), `started_at`, `completed_at`, `command_id` (nullable, FK → `commands.id`, **no cascade** — cross-domain, same convention as `snapshots.command_id`), `error_message` | One row per step per run, created only once a step actually starts (a step that hasn't started yet in an in-progress run has no row at all — the application layer synthesizes a `PENDING` placeholder for it when building the live status view) |
+
+See [Workflows](WORKFLOWS.md) for the full execution model (serial/parallel/sleep semantics, cancellation, the startup reconciliation sweep for runs orphaned by a crash/restart).
+
 ## Design Decisions
 
 PostgreSQL is authoritative for server metadata and lifecycle state. Migrations are ordered, reviewed, reversible where feasible, and run once by controlled deployment. Retention is policy-driven: operational command/audit history is retained longer than raw telemetry; object lifecycle policies delete or archive binary media independently.
@@ -89,3 +102,4 @@ Partition high-volume events by time; add rollups, read replicas, per-site bound
 
 - [Architecture](ARCHITECTURE.md)
 - [Storage](../agent/STORAGE.md)
+- [Workflows](WORKFLOWS.md)

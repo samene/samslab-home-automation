@@ -24,6 +24,7 @@ from app.application.exceptions.errors import (
     InvalidTokenError,
     PermissionDeniedError,
     SnapshotNotFoundError,
+    WorkflowNotFoundError,
 )
 from app.domains.auth.exceptions import (
     DeviceCredentialAlreadyExists,
@@ -43,6 +44,7 @@ from app.domains.devices.exceptions import (
     InvalidHeartbeat,
 )
 from app.domains.snapshots.exceptions import SnapshotNotFound
+from app.domains.workflows.exceptions import WorkflowNotFound
 
 _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DeviceAlreadyExists: DeviceAlreadyExistsError,
@@ -60,6 +62,7 @@ _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DeviceCredentialNotFound: DeviceCredentialNotFoundError,
     DeviceCredentialAlreadyExists: DeviceCredentialAlreadyExistsError,
     SnapshotNotFound: SnapshotNotFoundError,
+    WorkflowNotFound: WorkflowNotFoundError,
 }
 
 

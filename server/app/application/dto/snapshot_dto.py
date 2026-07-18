@@ -33,6 +33,12 @@ class SnapshotDTO(BaseModel):
     captured_at: datetime
     created_at: datetime
     metadata: dict[str, Any]
+    # Both null unless this snapshot was captured by a Workflow's Command
+    # Task — workflow_name is resolved fresh on every read (never persisted
+    # alongside it) so a later workflow rename is reflected immediately, and
+    # still resolves even after the workflow itself has been (soft-)deleted.
+    workflow_id: UUID | None = None
+    workflow_name: str | None = None
 
 
 class SnapshotPageDTO(BaseModel):

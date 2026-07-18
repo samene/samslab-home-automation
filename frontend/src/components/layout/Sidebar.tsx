@@ -1,4 +1,4 @@
-import { History, Images, LayoutDashboard, Settings } from "lucide-react";
+import { History, Images, LayoutDashboard, Settings, Workflow } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import { Logo } from "@/components/layout/Logo";
 import { cn } from "@/lib/utils";
@@ -7,6 +7,7 @@ const NAV_ITEMS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/history", label: "History", icon: History },
   { to: "/snapshots", label: "Snapshots", icon: Images },
+  { to: "/workflows", label: "Workflows", icon: Workflow },
   { to: "/settings", label: "Settings", icon: Settings },
 ];
 

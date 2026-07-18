@@ -178,6 +178,15 @@ class Settings(BaseSettings):
     aws_presigned_url_ttl_seconds: float = Field(
         default=300.0, gt=0, validation_alias="AWS_PRESIGNED_URL_TTL_SECONDS"
     )
+    workflow_command_timeout_seconds: float = Field(
+        default=60.0, gt=0, validation_alias="WORKFLOW_COMMAND_TIMEOUT_SECONDS"
+    )
+    workflow_command_poll_interval_seconds: float = Field(
+        default=0.25, gt=0, validation_alias="WORKFLOW_COMMAND_POLL_INTERVAL_SECONDS"
+    )
+    workflow_run_shutdown_wait_seconds: float = Field(
+        default=30.0, gt=0, validation_alias="WORKFLOW_RUN_SHUTDOWN_WAIT_SECONDS"
+    )
 
     @field_validator("log_level")
     @classmethod

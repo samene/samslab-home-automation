@@ -35,6 +35,11 @@ from app.application.exceptions.errors import (
     PermissionDeniedError,
     SnapshotNotFoundError,
     UnauthorizedError,
+    WorkflowDeviceNotFoundError,
+    WorkflowDisabledError,
+    WorkflowNotFoundError,
+    WorkflowStepFailedError,
+    WorkflowStepTimedOutError,
 )
 from app.application.exceptions.translation import translate_domain_error
 
@@ -64,5 +69,10 @@ __all__ = [
     "PermissionDeniedError",
     "SnapshotNotFoundError",
     "UnauthorizedError",
+    "WorkflowDeviceNotFoundError",
+    "WorkflowDisabledError",
+    "WorkflowNotFoundError",
+    "WorkflowStepFailedError",
+    "WorkflowStepTimedOutError",
     "translate_domain_error",
 ]

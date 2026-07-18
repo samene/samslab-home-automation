@@ -7,7 +7,9 @@ from app.application.dto.snapshot_dto import SnapshotDTO
 from app.domains.snapshots.models import Snapshot
 
 
-def to_snapshot_dto(snapshot: Snapshot, *, thumbnail_url: str, image_url: str) -> SnapshotDTO:
+def to_snapshot_dto(
+    snapshot: Snapshot, *, thumbnail_url: str, image_url: str, workflow_name: str | None = None
+) -> SnapshotDTO:
     """Map a persisted snapshot to its DTO, attaching freshly minted presigned URLs."""
     return SnapshotDTO(
         id=snapshot.id,
@@ -24,6 +26,8 @@ def to_snapshot_dto(snapshot: Snapshot, *, thumbnail_url: str, image_url: str) -
         captured_at=snapshot.captured_at,
         created_at=snapshot.created_at,
         metadata=snapshot.metadata_,
+        workflow_id=snapshot.workflow_id,
+        workflow_name=workflow_name,
     )
 
 

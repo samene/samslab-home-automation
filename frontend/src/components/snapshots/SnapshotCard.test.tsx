@@ -20,6 +20,8 @@ function makeSnapshot(overrides: Partial<SnapshotDTO> = {}): SnapshotDTO {
     captured_at: "2026-01-15T10:00:00Z",
     created_at: "2026-01-15T10:00:01Z",
     metadata: {},
+    workflow_id: null,
+    workflow_name: null,
     ...overrides,
   };
 }
@@ -49,5 +51,26 @@ describe("SnapshotCard", () => {
 
     await user.click(screen.getByRole("button"));
     expect(onClick).toHaveBeenCalledOnce();
+  });
+
+  it("shows a 'created by workflow' note when workflow_name is present", () => {
+    render(
+      <SnapshotCard
+        snapshot={makeSnapshot({ workflow_id: "wf-1", workflow_name: "Nightly patrol" })}
+        deviceName="Backyard Pi"
+        onClick={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Created by workflow/)).toBeInTheDocument();
+    expect(screen.getByText(/Nightly patrol/)).toBeInTheDocument();
+  });
+
+  it("shows no workflow note when workflow_name is absent", () => {
+    render(
+      <SnapshotCard snapshot={makeSnapshot()} deviceName="Backyard Pi" onClick={vi.fn()} />,
+    );
+
+    expect(screen.queryByText(/Created by workflow/)).not.toBeInTheDocument();
   });
 });

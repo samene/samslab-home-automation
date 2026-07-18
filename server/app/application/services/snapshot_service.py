@@ -21,6 +21,7 @@ from app.core.s3_client import S3Client
 from app.domains.snapshots.exceptions import SnapshotDomainError
 from app.domains.snapshots.models import Snapshot
 from app.domains.snapshots.service import SnapshotService
+from app.domains.workflows.service import WorkflowService
 
 logger = structlog.get_logger(__name__)
 
@@ -34,11 +35,19 @@ class SnapshotApplicationService:
         *,
         s3_client: S3Client | None,
         presigned_url_ttl_seconds: float,
+        workflow_service: WorkflowService | None = None,
     ) -> None:
-        """Wrap the domain service; ``s3_client`` is None when S3 isn't configured."""
+        """Wrap the domain service; ``s3_client`` is None when S3 isn't configured.
+
+        ``workflow_service`` is optional and used only to resolve a
+        workflow-captured snapshot's originating workflow name for display
+        — omit it (e.g. when this service is built just to delete snapshots
+        as part of deleting their workflow) and names simply won't resolve.
+        """
         self._snapshots = snapshot_service
         self._s3_client = s3_client
         self._presigned_url_ttl_seconds = presigned_url_ttl_seconds
+        self._workflows = workflow_service
 
     async def get_snapshot(self, snapshot_id: UUID) -> SnapshotDTO:
         """Return one snapshot with freshly minted presigned URLs."""
@@ -46,7 +55,8 @@ class SnapshotApplicationService:
             snapshot = await self._snapshots.get_snapshot(snapshot_id)
         except SnapshotDomainError as error:
             raise translate_domain_error(error) from error
-        return self._to_dto(snapshot)
+        workflow_names = await self._resolve_workflow_names([snapshot])
+        return self._to_dto(snapshot, workflow_names)
 
     async def list_snapshots(
         self, *, device_id: UUID | None, offset: int, limit: int
@@ -56,12 +66,22 @@ class SnapshotApplicationService:
         snapshots, total = await self._snapshots.list_snapshots(
             device_id=device_id, offset=pagination.offset, limit=pagination.limit
         )
+        workflow_names = await self._resolve_workflow_names(snapshots)
         return SnapshotPageDTO(
-            items=[self._to_dto(snapshot) for snapshot in snapshots],
+            items=[self._to_dto(snapshot, workflow_names) for snapshot in snapshots],
             total=total,
             offset=pagination.offset,
             limit=pagination.limit,
         )
+
+    async def _resolve_workflow_names(self, snapshots: list[Snapshot]) -> dict[UUID, str]:
+        """Batch-resolve every distinct workflow_id across a page of snapshots, one query."""
+        if self._workflows is None:
+            return {}
+        workflow_ids = {snapshot.workflow_id for snapshot in snapshots if snapshot.workflow_id}
+        if not workflow_ids:
+            return {}
+        return await self._workflows.get_workflow_names(list(workflow_ids))
 
     async def delete_snapshot(self, snapshot_id: UUID) -> None:
         """Delete both S3 objects (best-effort) then hard-delete the metadata row."""
@@ -94,11 +114,15 @@ class SnapshotApplicationService:
                     error=str(error),
                 )
 
-    def _to_dto(self, snapshot: Snapshot) -> SnapshotDTO:
+    def _to_dto(self, snapshot: Snapshot, workflow_names: dict[UUID, str]) -> SnapshotDTO:
+        workflow_name = (
+            workflow_names.get(snapshot.workflow_id) if snapshot.workflow_id is not None else None
+        )
         return to_snapshot_dto(
             snapshot,
             thumbnail_url=self._presigned_url(snapshot.thumbnail_object_key),
             image_url=self._presigned_url(snapshot.original_object_key),
+            workflow_name=workflow_name,
         )
 
     def _presigned_url(self, object_key: str) -> str:

@@ -27,6 +27,12 @@ from app.application.mappers.command_mapper import (
 )
 from app.application.mappers.device_mapper import to_capability_dto, to_device_dto
 from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto, to_snapshot_dto
+from app.application.mappers.workflow_mapper import (
+    to_step_tree,
+    to_workflow_detail_dto,
+    to_workflow_dto,
+    to_workflow_run_dto,
+)
 from app.domains.commands.events import CommandEventType
 from app.domains.commands.exceptions import CommandNotFound, InvalidStateTransition
 from app.domains.commands.models import (
@@ -45,6 +51,16 @@ from app.domains.devices.exceptions import (
 from app.domains.devices.models import Device, DeviceCapability, DeviceStatus
 from app.domains.snapshots.exceptions import SnapshotNotFound
 from app.domains.snapshots.models import Snapshot
+from app.domains.workflows.models import (
+    Workflow,
+    WorkflowGroupMode,
+    WorkflowRun,
+    WorkflowRunStatus,
+    WorkflowStep,
+    WorkflowStepRun,
+    WorkflowStepRunStatus,
+    WorkflowStepType,
+)
 
 
 def test_dtos_construct_independently_of_any_orm_model() -> None:
@@ -249,6 +265,186 @@ def test_camera_snapshot_mapper_exposes_metadata_only_no_urls_or_bucket() -> Non
     assert "bucket" not in dumped
     assert "original_object_key" not in dumped
     assert "thumbnail_object_key" not in dumped
+
+
+def _step(
+    *,
+    workflow_id: object,
+    parent_step_id: object = None,
+    position: int = 0,
+    step_type: WorkflowStepType = WorkflowStepType.SLEEP,
+    command_type: str | None = None,
+    sleep_seconds: int | None = 5,
+    group_mode: WorkflowGroupMode | None = None,
+) -> WorkflowStep:
+    return WorkflowStep(
+        id=uuid4(),
+        workflow_id=workflow_id,
+        parent_step_id=parent_step_id,
+        position=position,
+        step_type=step_type,
+        command_type=command_type,
+        sleep_seconds=sleep_seconds,
+        group_mode=group_mode,
+    )
+
+
+def test_to_step_tree_rebuilds_nesting_from_a_flat_list() -> None:
+    """A GROUP step's children are reassembled purely from parent_step_id, not an ORM relationship."""
+    workflow_id = uuid4()
+    root_command = _step(
+        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.COMMAND,
+        command_type="camera.snapshot", sleep_seconds=None,
+    )
+    group = _step(
+        workflow_id=workflow_id, position=1, step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+    )
+    child_a = _step(workflow_id=workflow_id, parent_step_id=group.id, position=0)
+    child_b = _step(workflow_id=workflow_id, parent_step_id=group.id, position=1)
+
+    tree = to_step_tree([child_b, group, root_command, child_a])  # deliberately out of order
+
+    assert [node.step_type for node in tree] == [WorkflowStepType.COMMAND, WorkflowStepType.GROUP]
+    assert tree[0].children == []
+    assert [child.id for child in tree[1].children] == [child_a.id, child_b.id]
+
+
+def test_workflow_step_dto_recursive_round_trip() -> None:
+    """The first self-referential Pydantic model in this codebase: verify it actually round-trips."""
+    workflow_id = uuid4()
+    group = _step(
+        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+    )
+    nested_group = _step(
+        workflow_id=workflow_id, parent_step_id=group.id, position=0,
+        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+    )
+    leaf_a = _step(workflow_id=workflow_id, parent_step_id=nested_group.id, position=0)
+    leaf_b = _step(workflow_id=workflow_id, parent_step_id=nested_group.id, position=1)
+
+    tree = to_step_tree([group, nested_group, leaf_a, leaf_b])
+    dumped = [node.model_dump() for node in tree]
+    rebuilt = [type(tree[0]).model_validate(item) for item in dumped]
+
+    assert rebuilt == tree
+    assert rebuilt[0].children[0].children[0].id == leaf_a.id
+
+
+def test_workflow_step_dto_round_trip_handles_a_deeper_branching_tree() -> None:
+    """One level deeper than the recursive round-trip test above, and branching.
+
+    The existing round-trip test only ever chains a single child per node
+    (GROUP -> GROUP -> leaf, leaf). This tree adds a sibling leaf alongside a
+    nested GROUP at the root, and nests a third GROUP below that — a shape
+    the recursive `to_step_tree`/DTO round-trip must still handle correctly.
+    """
+    workflow_id = uuid4()
+    root_group = _step(
+        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+    )
+    sibling_leaf = _step(
+        workflow_id=workflow_id, parent_step_id=root_group.id, position=0,
+        step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot", sleep_seconds=None,
+    )
+    mid_group = _step(
+        workflow_id=workflow_id, parent_step_id=root_group.id, position=1,
+        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+    )
+    inner_group = _step(
+        workflow_id=workflow_id, parent_step_id=mid_group.id, position=0,
+        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+    )
+    leaf_a = _step(workflow_id=workflow_id, parent_step_id=inner_group.id, position=0)
+    leaf_b = _step(workflow_id=workflow_id, parent_step_id=inner_group.id, position=1)
+
+    tree = to_step_tree([root_group, sibling_leaf, mid_group, inner_group, leaf_a, leaf_b])
+    dumped = [node.model_dump() for node in tree]
+    rebuilt = [type(tree[0]).model_validate(item) for item in dumped]
+
+    assert rebuilt == tree
+    assert rebuilt[0].children[0].step_type == WorkflowStepType.COMMAND
+    assert rebuilt[0].children[1].children[0].children[0].id == leaf_a.id
+    assert rebuilt[0].children[1].children[0].children[1].id == leaf_b.id
+
+
+def test_to_workflow_run_dto_fills_pending_placeholders_for_unstarted_steps() -> None:
+    """A step with no matching WorkflowStepRun row yet still appears, as PENDING."""
+    workflow_id = uuid4()
+    run_id = uuid4()
+    first = _step(workflow_id=workflow_id, position=0, sleep_seconds=1)
+    second = _step(workflow_id=workflow_id, position=1, sleep_seconds=2)
+    completed_run = WorkflowStepRun(
+        id=uuid4(),
+        workflow_run_id=run_id,
+        workflow_step_id=first.id,
+        status=WorkflowStepRunStatus.COMPLETED,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        completed_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+    )
+    run = WorkflowRun(
+        id=run_id, workflow_id=workflow_id, status=WorkflowRunStatus.RUNNING,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    dto = to_workflow_run_dto(run, [first, second], [completed_run])
+
+    assert dto.step_runs[0].status == WorkflowStepRunStatus.COMPLETED
+    assert dto.step_runs[1].status == WorkflowStepRunStatus.PENDING
+    assert dto.step_runs[1].id is None
+    assert dto.step_runs[1].workflow_step_id == second.id
+
+
+def test_to_workflow_detail_dto_embeds_the_latest_run() -> None:
+    workflow_id = uuid4()
+    workflow = Workflow(
+        id=workflow_id, name="Nightly", description=None, enabled=True, run_count=1,
+        last_run_at=datetime(2026, 1, 1, tzinfo=UTC), last_run_status=WorkflowRunStatus.COMPLETED,
+        last_run_duration_ms=1200, created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    step = _step(workflow_id=workflow_id, position=0)
+    run = WorkflowRun(
+        id=uuid4(), workflow_id=workflow_id, status=WorkflowRunStatus.COMPLETED,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC), completed_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    dto = to_workflow_detail_dto(workflow, [step], latest_run=run, latest_run_step_runs=[])
+
+    assert dto.name == "Nightly"
+    assert len(dto.steps) == 1
+    assert dto.latest_run is not None
+    assert dto.latest_run.id == run.id
+
+
+def test_to_workflow_detail_dto_latest_run_is_none_when_never_run() -> None:
+    workflow = Workflow(
+        id=uuid4(), name="Never run", description=None, enabled=True, run_count=0,
+        last_run_at=None, last_run_status=None, last_run_duration_ms=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC), updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    dto = to_workflow_detail_dto(workflow, [], latest_run=None, latest_run_step_runs=[])
+
+    assert dto.latest_run is None
+    assert dto.steps == []
+
+
+def test_to_workflow_dto_maps_denormalized_fields() -> None:
+    workflow = Workflow(
+        id=uuid4(), name="Backup", description="desc", enabled=False, run_count=3,
+        last_run_at=datetime(2026, 1, 1, tzinfo=UTC), last_run_status=WorkflowRunStatus.FAILED,
+        last_run_duration_ms=500, created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    dto = to_workflow_dto(workflow)
+
+    assert dto.enabled is False
+    assert dto.run_count == 3
+    assert dto.last_run_status == WorkflowRunStatus.FAILED
 
 
 def test_translate_domain_error_falls_back_to_generic_application_error() -> None:
