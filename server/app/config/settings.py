@@ -187,6 +187,15 @@ class Settings(BaseSettings):
     workflow_run_shutdown_wait_seconds: float = Field(
         default=30.0, gt=0, validation_alias="WORKFLOW_RUN_SHUTDOWN_WAIT_SECONDS"
     )
+    scheduler_run_outcome_poll_interval_seconds: float = Field(
+        default=0.5, gt=0, validation_alias="SCHEDULER_RUN_OUTCOME_POLL_INTERVAL_SECONDS"
+    )
+    scheduler_run_outcome_timeout_seconds: float = Field(
+        default=300.0, gt=0, validation_alias="SCHEDULER_RUN_OUTCOME_TIMEOUT_SECONDS"
+    )
+    scheduler_shutdown_wait_seconds: float = Field(
+        default=30.0, gt=0, validation_alias="SCHEDULER_SHUTDOWN_WAIT_SECONDS"
+    )
 
     @field_validator("log_level")
     @classmethod

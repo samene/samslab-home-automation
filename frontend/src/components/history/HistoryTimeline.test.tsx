@@ -2,13 +2,16 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
+import { useScheduleExecutions } from "@/hooks/useSchedules";
 import type { CommandDTO } from "@/types/api";
 import { HistoryTimeline } from "./HistoryTimeline";
 
 vi.mock("@/hooks/useCommands");
+vi.mock("@/hooks/useSchedules");
 
 const mockedUseCommand = vi.mocked(useCommand);
 const mockedUseDeleteCommand = vi.mocked(useDeleteCommand);
+const mockedUseScheduleExecutions = vi.mocked(useScheduleExecutions);
 
 function makeCommand(overrides: Partial<CommandDTO> = {}): CommandDTO {
   return {
@@ -53,6 +56,9 @@ describe("HistoryTimeline", () => {
       mutateAsync: vi.fn().mockResolvedValue(undefined),
       isPending: false,
     } as unknown as ReturnType<typeof useDeleteCommand>);
+    mockedUseScheduleExecutions.mockReturnValue({
+      data: { items: [], total: 0, offset: 0, limit: 100 },
+    } as unknown as ReturnType<typeof useScheduleExecutions>);
   });
 
   it("shows an empty state when there is no activity", () => {
@@ -61,6 +67,48 @@ describe("HistoryTimeline", () => {
     >);
     renderTimeline({ commands: [] });
     expect(screen.getByText("No activity found.")).toBeInTheDocument();
+  });
+
+  it("labels a command as Manual when no schedule execution matches its correlation_id", () => {
+    mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
+      typeof useCommand
+    >);
+    mockedUseScheduleExecutions.mockReturnValue({
+      data: { items: [], total: 0, offset: 0, limit: 100 },
+    } as unknown as ReturnType<typeof useScheduleExecutions>);
+
+    renderTimeline();
+
+    expect(screen.getByText("Manual")).toBeInTheDocument();
+  });
+
+  it("labels a command as Scheduled via <name> when its correlation_id matches a firing", () => {
+    mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
+      typeof useCommand
+    >);
+    mockedUseScheduleExecutions.mockReturnValue({
+      data: {
+        items: [
+          {
+            id: "exec-1",
+            schedule_id: "sched-1",
+            schedule_name: "Nightly patrol",
+            workflow_id: "wf-1",
+            workflow_run_id: "corr-1",
+            triggered_at: "2026-01-15T09:55:00Z",
+            status: "COMPLETED",
+            error_message: null,
+          },
+        ],
+        total: 1,
+        offset: 0,
+        limit: 100,
+      },
+    } as unknown as ReturnType<typeof useScheduleExecutions>);
+
+    renderTimeline();
+
+    expect(screen.getByText("Scheduled via Nightly patrol")).toBeInTheDocument();
   });
 
   it("expands a card to reveal duration, result JSON, and error details", async () => {

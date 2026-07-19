@@ -311,6 +311,64 @@ export interface WorkflowCreateRequest {
   steps: WorkflowStepCreateRequest[];
 }
 
+export type ScheduleType = "ONE_TIME" | "CRON";
+export type ScheduleRunStatus = "RUNNING" | "COMPLETED" | "FAILED";
+
+export interface ScheduleDTO {
+  id: string;
+  workflow_id: string;
+  workflow_name: string | null;
+  name: string;
+  description: string | null;
+  enabled: boolean;
+  schedule_type: ScheduleType;
+  cron_expression: string | null;
+  run_at: string | null;
+  timezone: string;
+  run_count: number;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_status: ScheduleRunStatus | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchedulePageDTO {
+  items: ScheduleDTO[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
+export interface ScheduleCreateRequest {
+  workflow_id: string;
+  name: string;
+  description?: string | null;
+  enabled?: boolean;
+  schedule_type: ScheduleType;
+  cron_expression?: string | null;
+  run_at?: string | null;
+  timezone?: string;
+}
+
+export interface ScheduleExecutionDTO {
+  id: string;
+  schedule_id: string;
+  schedule_name: string | null;
+  workflow_id: string;
+  workflow_run_id: string | null;
+  triggered_at: string;
+  status: ScheduleRunStatus;
+  error_message: string | null;
+}
+
+export interface ScheduleExecutionPageDTO {
+  items: ScheduleExecutionDTO[];
+  total: number;
+  offset: number;
+  limit: number;
+}
+
 export interface ApiProblem {
   type: string;
   title: string;

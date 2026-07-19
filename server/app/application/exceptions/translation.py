@@ -23,6 +23,7 @@ from app.application.exceptions.errors import (
     InvalidHeartbeatError,
     InvalidTokenError,
     PermissionDeniedError,
+    ScheduleNotFoundError,
     SnapshotNotFoundError,
     WorkflowNotFoundError,
 )
@@ -43,6 +44,7 @@ from app.domains.devices.exceptions import (
     DuplicateCapability,
     InvalidHeartbeat,
 )
+from app.domains.schedules.exceptions import ScheduleNotFound
 from app.domains.snapshots.exceptions import SnapshotNotFound
 from app.domains.workflows.exceptions import WorkflowNotFound
 
@@ -63,6 +65,7 @@ _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DeviceCredentialAlreadyExists: DeviceCredentialAlreadyExistsError,
     SnapshotNotFound: SnapshotNotFoundError,
     WorkflowNotFound: WorkflowNotFoundError,
+    ScheduleNotFound: ScheduleNotFoundError,
 }
 
 

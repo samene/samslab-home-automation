@@ -22,6 +22,21 @@ export function formatRelativeTime(value: string | null | undefined): string {
   return `${diffDays}d ago`;
 }
 
+/** A countdown to a future timestamp (e.g. "in 3m"), the forward-looking twin of formatRelativeTime. */
+export function formatCountdown(value: string | null | undefined): string {
+  if (!value) return "—";
+  const diffMs = new Date(value).getTime() - Date.now();
+  if (diffMs <= 0) return "now";
+  const diffSeconds = Math.round(diffMs / 1000);
+  if (diffSeconds < 60) return `in ${diffSeconds}s`;
+  const diffMinutes = Math.round(diffSeconds / 60);
+  if (diffMinutes < 60) return `in ${diffMinutes}m`;
+  const diffHours = Math.round(diffMinutes / 60);
+  if (diffHours < 24) return `in ${diffHours}h`;
+  const diffDays = Math.round(diffHours / 24);
+  return `in ${diffDays}d`;
+}
+
 export function formatDuration(durationMs: number | null | undefined): string {
   if (durationMs == null) return "—";
   if (durationMs < 1000) return `${durationMs}ms`;

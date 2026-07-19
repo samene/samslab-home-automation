@@ -12,9 +12,27 @@ import { CommandStatusBadge } from "@/components/shared/StatusBadge";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
+import { useScheduleExecutions } from "@/hooks/useSchedules";
 import { formatDuration, formatTimestamp, friendlyCommandLabel, getThumbnailUrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CommandDTO } from "@/types/api";
+
+/** Builds a workflow_run_id -> schedule_name lookup from every recorded firing.
+ *
+ * A command whose correlation_id isn't in this map was triggered manually
+ * (either a direct command, or a manually-run workflow) — there is no
+ * separate "manual" record to look up, it's simply the absence of a match.
+ */
+function useScheduleNameByRunId(): Map<string, string> {
+  const { data } = useScheduleExecutions({ limit: 100 });
+  const map = new Map<string, string>();
+  for (const execution of data?.items ?? []) {
+    if (execution.workflow_run_id && execution.schedule_name) {
+      map.set(execution.workflow_run_id, execution.schedule_name);
+    }
+  }
+  return map;
+}
 
 interface HistoryTimelineProps {
   commands: CommandDTO[];
@@ -45,6 +63,7 @@ export function HistoryTimeline({
 }: HistoryTimelineProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
   const deleteCommand = useDeleteCommand();
+  const scheduleNameByRunId = useScheduleNameByRunId();
 
   if (commands.length === 0) {
     return <p className="p-8 text-center text-sm text-muted-foreground">No activity found.</p>;
@@ -63,6 +82,7 @@ export function HistoryTimeline({
       <Accordion type="single" collapsible className="flex flex-col gap-3">
         {commands.map((command) => {
           const { icon: Icon, colorClass } = visualForCommandType(command.command_type);
+          const scheduleName = scheduleNameByRunId.get(command.correlation_id);
           return (
             <AccordionItem
               key={command.id}
@@ -90,7 +110,8 @@ export function HistoryTimeline({
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">
                         <span>{deviceNameById[command.device_id] ?? command.device_id}</span> ·{" "}
-                        <span>{formatTimestamp(command.created_at)}</span>
+                        <span>{formatTimestamp(command.created_at)}</span> ·{" "}
+                        <span>{scheduleName ? `Scheduled via ${scheduleName}` : "Manual"}</span>
                       </span>
                     </span>
                     <CommandStatusBadge status={command.status} />
@@ -100,6 +121,7 @@ export function HistoryTimeline({
               <AccordionContent>
                 <HistoryCardDetail
                   commandId={command.id}
+                  scheduleName={scheduleName}
                   onRequestDelete={() => setPendingDeleteId(command.id)}
                 />
               </AccordionContent>
@@ -128,9 +150,11 @@ export function HistoryTimeline({
 
 function HistoryCardDetail({
   commandId,
+  scheduleName,
   onRequestDelete,
 }: {
   commandId: string;
+  scheduleName: string | undefined;
   onRequestDelete: () => void;
 }) {
   const { data: command, isLoading } = useCommand(commandId);
@@ -156,6 +180,7 @@ function HistoryCardDetail({
           {command.retry_count} / {command.max_retries}
         </Field>
         <Field label="Priority">{command.priority}</Field>
+        <Field label="Triggered By">{scheduleName ? `Scheduled via ${scheduleName}` : "Manual"}</Field>
       </dl>
 
       {thumbnailUrl ? (

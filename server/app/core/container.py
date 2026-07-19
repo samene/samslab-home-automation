@@ -4,12 +4,14 @@ from dependency_injector import containers, providers
 
 from app.application.events.bus import EventBus
 from app.application.events.logging_subscriber import register_logging_subscriber
+from app.application.services.schedule_run_registry import ScheduleRunRegistry
 from app.application.services.workflow_run_registry import WorkflowRunRegistry
 from app.config.settings import Settings
 from app.core.database import Database
 from app.core.mediamtx_jwt import build_mediamtx_jwt_signer
 from app.core.s3_client import build_s3_client
 from app.dispatcher.dispatcher import CommandDispatcher
+from app.scheduler.scheduler import WorkflowScheduler
 from app.websocket.manager import SessionManager
 
 
@@ -26,6 +28,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
     event_bus = providers.Singleton(EventBus)
     session_manager = providers.Singleton(SessionManager)
     workflow_run_registry = providers.Singleton(WorkflowRunRegistry)
+    schedule_run_registry = providers.Singleton(ScheduleRunRegistry)
     mediamtx_jwt_signer = providers.Singleton(build_mediamtx_jwt_signer, settings=settings)
     s3_client = providers.Singleton(build_s3_client, settings=settings)
     dispatcher = providers.Singleton(
@@ -35,6 +38,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
         event_bus=event_bus,
         session_manager=session_manager,
     )
+    scheduler = providers.Singleton(WorkflowScheduler, database=database)
 
 
 def build_container(settings: Settings) -> ApplicationContainer:

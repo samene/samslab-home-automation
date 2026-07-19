@@ -12,6 +12,7 @@ import { useCommand, useCommands, useCreateCommand } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
 import { useDispatcherStatistics, useDispatcherStatus } from "@/hooks/useDispatcher";
 import { useDeleteSnapshot, useSnapshot, useSnapshots } from "@/hooks/useSnapshots";
+import { useSchedules } from "@/hooks/useSchedules";
 import { useRunWorkflow, useWorkflows } from "@/hooks/useWorkflows";
 import type { CommandDTO, DeviceDTO } from "@/types/api";
 import { DashboardPage } from "./DashboardPage";
@@ -22,6 +23,7 @@ vi.mock("@/hooks/useCamera");
 vi.mock("@/hooks/useDispatcher");
 vi.mock("@/hooks/useSnapshots");
 vi.mock("@/hooks/useWorkflows");
+vi.mock("@/hooks/useSchedules");
 vi.mock("hls.js", () => ({
   default: class {
     static isSupported() {
@@ -45,6 +47,7 @@ const mockedUseSnapshot = vi.mocked(useSnapshot);
 const mockedUseDeleteSnapshot = vi.mocked(useDeleteSnapshot);
 const mockedUseWorkflows = vi.mocked(useWorkflows);
 const mockedUseRunWorkflow = vi.mocked(useRunWorkflow);
+const mockedUseSchedules = vi.mocked(useSchedules);
 
 function mockCommonHooks() {
   mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
@@ -90,6 +93,9 @@ function mockCommonHooks() {
     mutate: vi.fn(),
     isPending: false,
   } as unknown as ReturnType<typeof useRunWorkflow>);
+  mockedUseSchedules.mockReturnValue({
+    data: { items: [], total: 0, offset: 0, limit: 5 },
+  } as unknown as ReturnType<typeof useSchedules>);
 }
 
 const DEVICE: DeviceDTO = {

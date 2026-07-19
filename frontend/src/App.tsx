@@ -8,6 +8,8 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { ScheduleEditorPage } from "@/pages/ScheduleEditorPage";
+import { SchedulesPage } from "@/pages/SchedulesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 import { SnapshotsPage } from "@/pages/SnapshotsPage";
 import { WorkflowEditorPage } from "@/pages/WorkflowEditorPage";
@@ -85,6 +87,36 @@ export function App() {
                   <ProtectedRoute>
                     <AppShell>
                       <WorkflowEditorPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/schedules"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <SchedulesPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/schedules/new"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <ScheduleEditorPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/schedules/:id/edit"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <ScheduleEditorPage />
                     </AppShell>
                   </ProtectedRoute>
                 }

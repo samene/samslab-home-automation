@@ -144,3 +144,14 @@ class WorkflowStepFailedError(ConflictError):
 
 class WorkflowStepTimedOutError(ConflictError):
     """Raised when a Command Task's underlying command does not reach a terminal state in time."""
+
+
+# --- Schedule use cases ---------------------------------------------------------
+
+
+class ScheduleNotFoundError(NotFoundError):
+    """Raised when a referenced schedule does not exist."""
+
+
+class ScheduleWorkflowNotFoundError(NotFoundError):
+    """Raised when a schedule's ``workflow_id`` does not resolve to an existing workflow."""

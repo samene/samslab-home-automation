@@ -8,17 +8,20 @@ import {
   useDeleteCommand,
 } from "@/hooks/useCommands";
 import { useDevices } from "@/hooks/useDevices";
+import { useScheduleExecutions } from "@/hooks/useSchedules";
 import type { CommandDTO, DevicePageDTO } from "@/types/api";
 import { HistoryPage } from "./HistoryPage";
 
 vi.mock("@/hooks/useDevices");
 vi.mock("@/hooks/useCommands");
+vi.mock("@/hooks/useSchedules");
 
 const mockedUseDevices = vi.mocked(useDevices);
 const mockedUseCommands = vi.mocked(useCommands);
 const mockedUseCommand = vi.mocked(useCommand);
 const mockedUseDeleteCommand = vi.mocked(useDeleteCommand);
 const mockedUseBulkDeleteCommands = vi.mocked(useBulkDeleteCommands);
+const mockedUseScheduleExecutions = vi.mocked(useScheduleExecutions);
 
 const DEVICES: DevicePageDTO = {
   items: [
@@ -71,6 +74,9 @@ describe("HistoryPage", () => {
       mutateAsync: vi.fn().mockResolvedValue(undefined),
       isPending: false,
     } as unknown as ReturnType<typeof useDeleteCommand>);
+    mockedUseScheduleExecutions.mockReturnValue({
+      data: { items: [], total: 0, offset: 0, limit: 100 },
+    } as unknown as ReturnType<typeof useScheduleExecutions>);
     mockedUseBulkDeleteCommands.mockReturnValue({
       mutateAsync: vi.fn().mockResolvedValue({ total: 0, failed: 0 }),
       isPending: false,

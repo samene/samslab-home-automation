@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from uuid import UUID
 
 import structlog
 from fastapi import FastAPI
@@ -25,6 +26,8 @@ from app.application.exceptions import (
     NotFoundError,
     UnauthorizedError,
 )
+from app.application.services.schedule_service import ScheduleApplicationService
+from app.application.services.workflow_service import WorkflowApplicationService
 from app.config.settings import Settings
 from app.core.container import ApplicationContainer, build_container
 from app.core.database import Database
@@ -36,6 +39,7 @@ from app.core.problems import (
 from app.domains.auth.api import router as auth_router
 from app.domains.commands.api import router as commands_router
 from app.domains.devices.api import router as devices_router
+from app.domains.schedules.api import router as schedules_router
 from app.domains.snapshots.api import router as snapshots_router
 from app.domains.workflows.api import router as workflows_router
 from app.domains.workflows.repository import WorkflowRepository
@@ -72,6 +76,47 @@ async def _reconcile_interrupted_workflow_runs(database: Database) -> None:
         logger.warning("workflow_runs_reconciled", count=reconciled_count)
 
 
+def _build_schedule_on_fire(app: FastAPI) -> Callable[[UUID], Awaitable[None]]:
+    """Build the live scheduler's ``on_fire`` callback.
+
+    A fresh, lightweight ``ScheduleApplicationService`` (which itself opens
+    its own sessions per operation) is built per firing, exactly mirroring
+    how ``schedules/api.py``'s own per-request dependency function builds
+    one — this is the one place both a real HTTP request and a live cron/
+    one-time trigger reach the identical ``execute_schedule``/``run_now``
+    entry points into ``WorkflowApplicationService.run_workflow``.
+    """
+
+    async def on_fire(schedule_id: UUID) -> None:
+        database = app.state.container.database()
+        if database is None:
+            return
+        settings: Settings = app.state.container.settings()
+        event_bus = app.state.container.event_bus()
+        workflow_app_service = WorkflowApplicationService(
+            database=database,
+            event_bus=event_bus,
+            run_registry=app.state.container.workflow_run_registry(),
+            command_timeout_seconds=settings.workflow_command_timeout_seconds,
+            command_poll_interval_seconds=settings.workflow_command_poll_interval_seconds,
+            s3_client=app.state.container.s3_client(),
+            presigned_url_ttl_seconds=settings.aws_presigned_url_ttl_seconds,
+        )
+        service = ScheduleApplicationService(
+            database=database,
+            workflow_app_service=workflow_app_service,
+            scheduler=app.state.container.scheduler(),
+            run_registry=app.state.container.schedule_run_registry(),
+            run_outcome_poll_interval_seconds=settings.scheduler_run_outcome_poll_interval_seconds,
+            run_outcome_timeout_seconds=settings.scheduler_run_outcome_timeout_seconds,
+            s3_client=app.state.container.s3_client(),
+            presigned_url_ttl_seconds=settings.aws_presigned_url_ttl_seconds,
+        )
+        await service.execute_schedule(schedule_id)
+
+    return on_fire
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize and cleanly release application-owned foundation resources."""
@@ -84,15 +129,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await _reconcile_interrupted_workflow_runs(database)
     dispatcher = app.state.container.dispatcher()
     await dispatcher.start()
+    scheduler = app.state.container.scheduler()
+    await scheduler.start(on_fire=_build_schedule_on_fire(app))
     try:
         yield
     finally:
+        await scheduler.stop()
         await dispatcher.stop()
         session_manager = app.state.container.session_manager()
         await session_manager.close_all()
         await session_manager.wait_closed()
         workflow_run_registry = app.state.container.workflow_run_registry()
         await workflow_run_registry.wait_closed(timeout=settings.workflow_run_shutdown_wait_seconds)
+        schedule_run_registry = app.state.container.schedule_run_registry()
+        await schedule_run_registry.wait_closed(timeout=settings.scheduler_shutdown_wait_seconds)
         if database is not None:
             await database.dispose()
         app.state.container.shutdown_resources()
@@ -240,6 +290,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "directly."
                 ),
             },
+            {
+                "name": "Schedules",
+                "description": (
+                    "One-time and recurring (cron) triggers that fire an existing "
+                    "Workflow through its normal execution path — the same one "
+                    "'Run Now' uses. A schedule never executes a command or "
+                    "touches hardware directly."
+                ),
+            },
         ],
         lifespan=lifespan,
     )
@@ -261,6 +320,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(camera_router)
     application.include_router(snapshots_router)
     application.include_router(workflows_router)
+    application.include_router(schedules_router)
     application.include_router(mediamtx_jwks_router)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)

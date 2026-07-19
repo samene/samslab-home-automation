@@ -7,6 +7,7 @@ import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RecentSnapshots } from "@/components/dashboard/RecentSnapshots";
 import { RecentWorkflows } from "@/components/dashboard/RecentWorkflows";
 import { SystemStatusPanel } from "@/components/dashboard/SystemStatusPanel";
+import { UpcomingSchedules } from "@/components/dashboard/UpcomingSchedules";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -78,6 +79,7 @@ export function DashboardPage() {
           />
           <QuickSnapshotCard hasDevice={Boolean(device)} />
           <RecentWorkflows />
+          <UpcomingSchedules />
         </div>
 
         <div className="min-h-64 lg:col-span-2 lg:col-start-2 lg:min-h-0">
