@@ -37,8 +37,8 @@ from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.schemas import DeviceCreate
 from app.domains.devices.service import DeviceService
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.domains.workflows.models import (
     WorkflowGroupMode,
     WorkflowRunStatus,
@@ -222,15 +222,15 @@ async def test_run_workflow_camera_snapshot_step_persists_a_linked_snapshot(
     assert detail.latest_run.status == WorkflowRunStatus.COMPLETED
 
     async with database.session_factory() as session:
-        snapshots = await SnapshotService(SnapshotRepository(session)).list_snapshots(
-            device_id=None, offset=0, limit=10
+        media_rows = await SavedMediaService(SavedMediaRepository(session)).list_media(
+            device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
-    items, total = snapshots
+    items, total = media_rows
     assert total == 1
-    snapshot = items[0]
-    assert snapshot.filename == SNAPSHOT_RESULT["filename"]
-    assert snapshot.workflow_id == created.id
-    assert snapshot.workflow_run_id == run_id
+    media = items[0]
+    assert media.filename == SNAPSHOT_RESULT["filename"]
+    assert media.workflow_id == created.id
+    assert media.workflow_run_id == run_id
 
 
 async def test_run_workflow_parallel_group_waits_for_all_children(
@@ -637,16 +637,16 @@ async def test_delete_workflow_with_delete_artifacts_removes_generated_snapshots
         _complete_pending_commands(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT),
     )
     async with database.session_factory() as session:
-        _, total_before = await SnapshotService(SnapshotRepository(session)).list_snapshots(
-            device_id=None, offset=0, limit=10
+        _, total_before = await SavedMediaService(SavedMediaRepository(session)).list_media(
+            device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
     assert total_before == 1
 
     await service.delete_workflow(created.id, delete_artifacts=True)
 
     async with database.session_factory() as session:
-        _, total_after = await SnapshotService(SnapshotRepository(session)).list_snapshots(
-            device_id=None, offset=0, limit=10
+        _, total_after = await SavedMediaService(SavedMediaRepository(session)).list_media(
+            device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
     assert total_after == 0
     assert len(fake_boto.delete_calls) == 2  # original + thumbnail objects
@@ -670,8 +670,8 @@ async def test_delete_workflow_without_delete_artifacts_keeps_generated_snapshot
     await workflow_app_service.delete_workflow(created.id)  # delete_artifacts defaults False
 
     async with database.session_factory() as session:
-        _, total = await SnapshotService(SnapshotRepository(session)).list_snapshots(
-            device_id=None, offset=0, limit=10
+        _, total = await SavedMediaService(SavedMediaRepository(session)).list_media(
+            device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
     assert total == 1
 

@@ -10,8 +10,8 @@ from app.core.database import Base
 from app.domains.auth import models as auth_models  # noqa: F401
 from app.domains.commands import models as commands_models  # noqa: F401
 from app.domains.devices import models as devices_models  # noqa: F401
+from app.domains.saved_media import models as saved_media_models  # noqa: F401
 from app.domains.schedules import models as schedules_models  # noqa: F401
-from app.domains.snapshots import models as snapshots_models  # noqa: F401
 from app.domains.workflows import models as workflows_models  # noqa: F401
 
 config = context.config

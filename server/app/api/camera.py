@@ -10,7 +10,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from app.application.dto.camera_dto import CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO
+from app.application.dto.camera_dto import (
+    CameraRecordingDTO,
+    CameraRecordingStartedDTO,
+    CameraSnapshotDTO,
+    CameraStatusDTO,
+    CameraStopDTO,
+)
 from app.application.events.bus import EventBus
 from app.application.services.camera_service import CameraApplicationService
 from app.core.database import Database
@@ -44,6 +50,7 @@ def get_camera_application_service(
         command_timeout_seconds=settings.camera_command_timeout_seconds,
         command_poll_interval_seconds=settings.camera_command_poll_interval_seconds,
         snapshot_command_timeout_seconds=settings.camera_snapshot_command_timeout_seconds,
+        recording_command_timeout_seconds=settings.camera_recording_command_timeout_seconds,
     )
 
 
@@ -81,3 +88,27 @@ async def take_snapshot(
 ) -> CameraSnapshotDTO:
     """Dispatch ``camera.snapshot`` and wait for it to complete and persist metadata."""
     return await service.capture_snapshot()
+
+
+@router.post(
+    "/record/start",
+    response_model=CameraRecordingStartedDTO,
+    summary="Start local high-quality recording, independent of the live stream",
+)
+async def start_recording(
+    service: CameraApplicationService = Depends(get_camera_application_service),
+) -> CameraRecordingStartedDTO:
+    """Dispatch ``camera.record.start`` and wait for the device to confirm it began."""
+    return await service.start_recording()
+
+
+@router.post(
+    "/record/stop",
+    response_model=CameraRecordingDTO,
+    summary="Stop recording, finalize the MP4, and upload it directly to S3",
+)
+async def stop_recording(
+    service: CameraApplicationService = Depends(get_camera_application_service),
+) -> CameraRecordingDTO:
+    """Dispatch ``camera.record.stop`` and wait for it to complete and persist metadata."""
+    return await service.stop_recording()

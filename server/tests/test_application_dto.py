@@ -16,7 +16,7 @@ from app.application.exceptions import (
     DuplicateCapabilityError,
     InvalidCommandStateError,
     InvalidHeartbeatError,
-    SnapshotNotFoundError,
+    SavedMediaNotFoundError,
     translate_domain_error,
 )
 from app.application.mappers.command_mapper import (
@@ -26,7 +26,7 @@ from app.application.mappers.command_mapper import (
     to_command_result_dto,
 )
 from app.application.mappers.device_mapper import to_capability_dto, to_device_dto
-from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto, to_snapshot_dto
+from app.application.mappers.saved_media_mapper import to_camera_snapshot_dto, to_saved_media_dto
 from app.application.mappers.workflow_mapper import (
     to_step_tree,
     to_workflow_detail_dto,
@@ -49,8 +49,8 @@ from app.domains.devices.exceptions import (
     InvalidHeartbeat,
 )
 from app.domains.devices.models import Device, DeviceCapability, DeviceStatus
-from app.domains.snapshots.exceptions import SnapshotNotFound
-from app.domains.snapshots.models import Snapshot
+from app.domains.saved_media.exceptions import SavedMediaNotFound
+from app.domains.saved_media.models import MediaType, SavedMedia
 from app.domains.workflows.models import (
     Workflow,
     WorkflowGroupMode,
@@ -202,12 +202,13 @@ def test_translate_domain_error_maps_every_known_domain_exception() -> None:
     assert isinstance(translate_domain_error(InvalidHeartbeat("x")), InvalidHeartbeatError)
     assert isinstance(translate_domain_error(CommandNotFound("x")), CommandNotFoundError)
     assert isinstance(translate_domain_error(InvalidStateTransition("x")), InvalidCommandStateError)
-    assert isinstance(translate_domain_error(SnapshotNotFound("x")), SnapshotNotFoundError)
+    assert isinstance(translate_domain_error(SavedMediaNotFound("x")), SavedMediaNotFoundError)
 
 
-def _build_snapshot(**overrides: object) -> Snapshot:
+def _build_media(**overrides: object) -> SavedMedia:
     defaults: dict[str, object] = {
         "id": uuid4(),
+        "media_type": MediaType.IMAGE,
         "device_id": uuid4(),
         "command_id": uuid4(),
         "filename": "snapshot.jpg",
@@ -224,41 +225,42 @@ def _build_snapshot(**overrides: object) -> Snapshot:
         "metadata_": {},
     }
     defaults.update(overrides)
-    return Snapshot(**defaults)
+    return SavedMedia(**defaults)
 
 
-def test_snapshot_mapper_attaches_freshly_minted_presigned_urls() -> None:
-    """to_snapshot_dto maps persisted fields and attaches the caller-supplied URLs verbatim."""
-    snapshot = _build_snapshot()
+def test_saved_media_mapper_attaches_freshly_minted_presigned_urls() -> None:
+    """to_saved_media_dto maps persisted fields and attaches the caller-supplied URLs verbatim."""
+    media = _build_media()
 
-    dto = to_snapshot_dto(
-        snapshot,
+    dto = to_saved_media_dto(
+        media,
         thumbnail_url="https://s3.example/thumb?sig=1",
-        image_url="https://s3.example/full?sig=2",
+        media_url="https://s3.example/full?sig=2",
     )
 
-    assert dto.id == snapshot.id
+    assert dto.id == media.id
     assert dto.filename == "snapshot.jpg"
     assert dto.thumbnail_url == "https://s3.example/thumb?sig=1"
     assert dto.image_url == "https://s3.example/full?sig=2"
+    assert dto.video_url == ""
     assert dto.metadata == {}
 
 
 def test_camera_snapshot_mapper_exposes_metadata_only_no_urls_or_bucket() -> None:
     """to_camera_snapshot_dto never leaks S3 URLs, object keys, or the bucket name."""
-    snapshot = _build_snapshot()
+    media = _build_media()
 
-    dto = to_camera_snapshot_dto(snapshot)
+    dto = to_camera_snapshot_dto(media)
 
     assert isinstance(dto, CameraSnapshotDTO)
-    assert dto.id == snapshot.id
-    assert dto.device_id == snapshot.device_id
-    assert dto.command_id == snapshot.command_id
-    assert dto.filename == snapshot.filename
-    assert dto.width == snapshot.width
-    assert dto.height == snapshot.height
-    assert dto.size == snapshot.size
-    assert dto.captured_at == snapshot.captured_at
+    assert dto.id == media.id
+    assert dto.device_id == media.device_id
+    assert dto.command_id == media.command_id
+    assert dto.filename == media.filename
+    assert dto.width == media.width
+    assert dto.height == media.height
+    assert dto.size == media.size
+    assert dto.captured_at == media.captured_at
     dumped = dto.model_dump()
     assert "thumbnail_url" not in dumped
     assert "image_url" not in dumped

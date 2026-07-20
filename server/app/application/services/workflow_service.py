@@ -36,10 +36,10 @@ from app.application.exceptions import (
     translate_domain_error,
 )
 from app.application.mappers.workflow_mapper import to_workflow_detail_dto, to_workflow_dto
-from app.application.services.command_artifacts import record_snapshot_from_command
+from app.application.services.command_artifacts import record_media_from_command
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
-from app.application.services.snapshot_service import SnapshotApplicationService
+from app.application.services.saved_media_service import SavedMediaApplicationService
 from app.application.services.workflow_run_registry import WorkflowRunRegistry
 from app.application.validators import PaginationParams
 from app.core.database import Database
@@ -50,8 +50,8 @@ from app.domains.commands.schemas import CommandCreate
 from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.service import DeviceService
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.domains.workflows.exceptions import WorkflowDomainError
 from app.domains.workflows.models import (
     WorkflowGroupMode,
@@ -87,7 +87,7 @@ class WorkflowApplicationService:
 
         ``s3_client``/``presigned_url_ttl_seconds`` are only ever used by
         ``delete_workflow(delete_artifacts=True)``, to reuse
-        ``SnapshotApplicationService.delete_snapshot``'s existing S3-cleanup
+        ``SavedMediaApplicationService.delete_media``'s existing S3-cleanup
         logic rather than duplicating it.
         """
         self._database = database
@@ -144,17 +144,18 @@ class WorkflowApplicationService:
     async def delete_workflow(self, workflow_id: UUID, *, delete_artifacts: bool = False) -> None:
         """Soft-delete a workflow, optionally hard-deleting everything it generated first.
 
-        Snapshots aren't touched by default — a workflow's run history and
-        the images it produced are independently useful even after the
-        workflow definition itself is gone. When ``delete_artifacts`` is
-        true, every ``Snapshot`` this workflow's runs ever produced is
-        deleted first (S3 objects best-effort, row hard-deleted), reusing
-        ``SnapshotApplicationService.delete_snapshot`` rather than
+        Saved media (images and videos alike) aren't touched by default — a
+        workflow's run history and what it captured are independently useful
+        even after the workflow definition itself is gone. When
+        ``delete_artifacts`` is true, every ``SavedMedia`` row this
+        workflow's runs ever produced is deleted first (S3 objects
+        best-effort, row hard-deleted), reusing
+        ``SavedMediaApplicationService.delete_media`` rather than
         duplicating its S3-cleanup logic.
         """
         if delete_artifacts:
-            for snapshot_id in await self._find_generated_snapshot_ids(workflow_id):
-                await self._delete_snapshot(snapshot_id)
+            for media_id in await self._find_generated_media_ids(workflow_id):
+                await self._delete_media(media_id)
         async with self._database.session_factory() as session:
             service = self._build_workflow_service(session)
             try:
@@ -163,22 +164,22 @@ class WorkflowApplicationService:
                 raise translate_domain_error(error) from error
             await session.commit()
 
-    async def _find_generated_snapshot_ids(self, workflow_id: UUID) -> list[UUID]:
+    async def _find_generated_media_ids(self, workflow_id: UUID) -> list[UUID]:
         async with self._database.session_factory() as session:
-            snapshots = await SnapshotService(SnapshotRepository(session)).find_by_workflow_id(
+            media_items = await SavedMediaService(SavedMediaRepository(session)).find_by_workflow_id(
                 workflow_id
             )
             await session.commit()
-            return [snapshot.id for snapshot in snapshots]
+            return [media.id for media in media_items]
 
-    async def _delete_snapshot(self, snapshot_id: UUID) -> None:
+    async def _delete_media(self, media_id: UUID) -> None:
         async with self._database.session_factory() as session:
-            service = SnapshotApplicationService(
-                SnapshotService(SnapshotRepository(session)),
+            service = SavedMediaApplicationService(
+                SavedMediaService(SavedMediaRepository(session)),
                 s3_client=self._s3_client,
                 presigned_url_ttl_seconds=self._presigned_url_ttl_seconds,
             )
-            await service.delete_snapshot(snapshot_id)
+            await service.delete_media(media_id)
             await session.commit()
 
     # --- Execution ------------------------------------------------------------
@@ -304,10 +305,11 @@ class WorkflowApplicationService:
             await self._cancel_command(command_id)
             raise
         # Treated exactly like any other completed command — the same
-        # shared helper CameraApplicationService.capture_snapshot uses,
-        # never a snapshot-specific branch in this generic step executor.
+        # shared helper CameraApplicationService.capture_snapshot/
+        # stop_recording use, never a media-type-specific branch in this
+        # generic step executor.
         result = completed.result.result if completed.result else {}
-        await record_snapshot_from_command(
+        await record_media_from_command(
             self._database,
             command_type=step.command_type,
             device_id=device_id,

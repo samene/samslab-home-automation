@@ -1,21 +1,26 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { SnapshotDTO } from "@/types/api";
+import type { SavedMediaDTO } from "@/types/api";
 import { SnapshotCard } from "./SnapshotCard";
 
-function makeSnapshot(overrides: Partial<SnapshotDTO> = {}): SnapshotDTO {
+function makeSnapshot(overrides: Partial<SavedMediaDTO> = {}): SavedMediaDTO {
   return {
     id: "snap-1",
+    media_type: "IMAGE",
     device_id: "device-1",
     command_id: "cmd-1",
     filename: "snap-1.jpg",
     thumbnail_url: "https://s3.example.com/thumb.jpg",
     image_url: "https://s3.example.com/full.jpg",
+    video_url: "",
     etag: "etag-1",
     sha256: "abc123",
     width: 1920,
     height: 1080,
+    duration: null,
+    fps: null,
+    bitrate: null,
     size: 204800,
     captured_at: "2026-01-15T10:00:00Z",
     created_at: "2026-01-15T10:00:01Z",

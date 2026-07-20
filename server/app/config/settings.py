@@ -166,6 +166,12 @@ class Settings(BaseSettings):
     camera_snapshot_command_timeout_seconds: float = Field(
         default=60.0, gt=0, validation_alias="CAMERA_SNAPSHOT_COMMAND_TIMEOUT_SECONDS"
     )
+    # Much longer than every other camera command timeout: camera.record.stop
+    # must wait for local MP4 finalization plus a full S3 upload of a
+    # potentially large video file, not just a quick device round-trip.
+    camera_recording_command_timeout_seconds: float = Field(
+        default=900.0, gt=0, validation_alias="CAMERA_RECORDING_COMMAND_TIMEOUT_SECONDS"
+    )
     # Independent of the agent's own AWS_* settings (agent/app/config/settings.py):
     # least-privilege in mind, this side only ever needs GetObject/presign +
     # DeleteObject, never PutObject — see app/core/s3_client.py.

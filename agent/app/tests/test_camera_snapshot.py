@@ -158,6 +158,77 @@ def test_capture_snapshot_reuses_the_live_frame_source_while_streaming() -> None
     service.stop()
 
 
+def test_capture_snapshot_toggles_sensor_hdr_on_then_off_around_the_fresh_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mirrors rpicam-still --hdr sensor: on only around the dedicated,
+    fresh-open snapshot path — see test_..._while_streaming below for the
+    "never touches an active live stream" half of this guarantee."""
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "app.plugins.camera.service.set_imx708_sensor_hdr", lambda enabled: calls.append(enabled)
+    )
+    uploader = FakeUploader()
+    service, _ = _service(uploader=uploader)
+
+    service.capture_snapshot()
+
+    assert calls == [True, False]
+
+
+def test_capture_snapshot_never_toggles_sensor_hdr_while_reusing_the_live_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The resolved design decision: live streaming must never be touched at all."""
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "app.plugins.camera.service.set_imx708_sensor_hdr", lambda enabled: calls.append(enabled)
+    )
+    uploader = FakeUploader()
+    snapshot_source = FakeSnapshotFrameSource(width=128, height=96)
+    settings = make_settings(
+        DEVICE_NAME="backyard-pi", CAMERA_WIDTH=64, CAMERA_HEIGHT=48, CAMERA_SNAPSHOT_WIDTH=128
+    )
+    live_source = FakeSnapshotFrameSource(width=64, height=48)
+    service = CameraService(
+        settings,
+        frame_source_factory=lambda: live_source,
+        publisher_factory=FakeStreamPublisher,
+        snapshot_frame_source_factory=lambda: snapshot_source,
+        uploader=uploader,
+    )
+    service.start()
+
+    service.capture_snapshot()
+
+    assert calls == []
+    service.stop()
+
+
+def test_capture_snapshot_skips_sensor_hdr_when_disabled_via_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(
+        "app.plugins.camera.service.set_imx708_sensor_hdr", lambda enabled: calls.append(enabled)
+    )
+    uploader = FakeUploader()
+    frame_source = FakeSnapshotFrameSource(width=128, height=96)
+    settings = make_settings(
+        DEVICE_NAME="backyard-pi",
+        CAMERA_SNAPSHOT_WIDTH=128,
+        CAMERA_SNAPSHOT_HEIGHT=96,
+        CAMERA_HDR_SENSOR_MODE=False,
+    )
+    service = CameraService(
+        settings, snapshot_frame_source_factory=lambda: frame_source, uploader=uploader
+    )
+
+    service.capture_snapshot()
+
+    assert calls == []
+
+
 def test_capture_snapshot_returns_metadata_only_never_image_bytes() -> None:
     uploader = FakeUploader()
     service, _ = _service(uploader=uploader)

@@ -4,8 +4,10 @@ import {
   formatFileSize,
   formatRelativeTime,
   formatTimestamp,
+  formatVideoDuration,
   friendlyCommandLabel,
   getThumbnailUrl,
+  groupByDay,
 } from "./format";
 
 describe("formatTimestamp", () => {
@@ -98,7 +100,63 @@ describe("friendlyCommandLabel", () => {
     expect(friendlyCommandLabel("camera.snapshot")).toBe("Snapshot Captured");
   });
 
+  it("maps camera.record.start/stop to friendly labels", () => {
+    expect(friendlyCommandLabel("camera.record.start")).toBe("Recording Started");
+    expect(friendlyCommandLabel("camera.record.stop")).toBe("Recording Finished");
+  });
+
   it("falls back to the raw command type when unmapped", () => {
     expect(friendlyCommandLabel("pump.start")).toBe("pump.start");
+  });
+});
+
+describe("formatVideoDuration", () => {
+  it("returns an em dash when duration is missing", () => {
+    expect(formatVideoDuration(null)).toBe("—");
+    expect(formatVideoDuration(undefined)).toBe("—");
+  });
+
+  it("formats seconds as mm:ss", () => {
+    expect(formatVideoDuration(65)).toBe("1:05");
+    expect(formatVideoDuration(5)).toBe("0:05");
+    expect(formatVideoDuration(600)).toBe("10:00");
+  });
+});
+
+describe("groupByDay", () => {
+  it("labels today and yesterday specially", () => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    const items = [
+      { id: "a", captured_at: today.toISOString() },
+      { id: "b", captured_at: yesterday.toISOString() },
+    ];
+
+    const groups = groupByDay(items, (item) => item.captured_at);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].label).toBe("Today");
+    expect(groups[0].items).toEqual([items[0]]);
+    expect(groups[1].label).toBe("Yesterday");
+    expect(groups[1].items).toEqual([items[1]]);
+  });
+
+  it("groups multiple items on the same day together", () => {
+    const today = new Date();
+    const items = [
+      { id: "a", captured_at: new Date(today.getTime()).toISOString() },
+      { id: "b", captured_at: new Date(today.getTime() - 60_000).toISOString() },
+    ];
+
+    const groups = groupByDay(items, (item) => item.captured_at);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].items).toHaveLength(2);
+  });
+
+  it("returns no groups for an empty list", () => {
+    expect(groupByDay([], (item: { captured_at: string }) => item.captured_at)).toEqual([]);
   });
 });

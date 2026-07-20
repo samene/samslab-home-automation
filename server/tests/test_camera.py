@@ -22,7 +22,11 @@ import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import FastAPI
 
-from app.application.dto.camera_dto import CameraSnapshotDTO
+from app.application.dto.camera_dto import (
+    CameraRecordingDTO,
+    CameraRecordingStartedDTO,
+    CameraSnapshotDTO,
+)
 from app.application.dto.device_dto import DeviceDTO
 from app.application.events.bus import EventBus
 from app.application.exceptions import (
@@ -40,8 +44,9 @@ from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.schemas import DeviceCreate
 from app.domains.devices.service import DeviceService
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
+from app.domains.saved_media.models import MediaType
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.main import create_app
 
 START_RESULT = {
@@ -62,6 +67,30 @@ SNAPSHOT_RESULT = {
     "height": 1080,
     "size": 204800,
     "captured_at": "2026-01-01T00:00:00+00:00",
+}
+RECORD_START_RESULT = {
+    "status": "recording_started",
+    "filename": "recording-20260101T000000Z.mp4",
+    "width": 1920,
+    "height": 1080,
+    "fps": 30,
+    "started_at": "2026-01-01T00:00:00+00:00",
+}
+RECORD_STOP_RESULT = {
+    "bucket": "samslab-videos",
+    "filename": "recording-20260101T000000Z.mp4",
+    "object_key": "videos/2026/01/01/garden-pi/recording-20260101T000000Z.mp4",
+    "thumbnail_object_key": "videos/2026/01/01/garden-pi/thumbnails/recording-20260101T000000Z.jpg",
+    "etag": '"def456"',
+    "sha256": "b" * 64,
+    "width": 1920,
+    "height": 1080,
+    "duration": 60,
+    "fps": 30,
+    "bitrate": 8000,
+    "file_size": 1_048_576,
+    "recorded_at": "2026-01-01T00:00:00+00:00",
+    "upload_duration": 3.2,
 }
 
 
@@ -427,7 +456,7 @@ async def test_capture_snapshot_waits_for_completion_and_persists_metadata(
     database: Database,
     device: DeviceDTO,
 ) -> None:
-    """capture_snapshot returns metadata-only DTO and persists the full row via SnapshotService."""
+    """capture_snapshot returns metadata-only DTO and persists the full row via SavedMediaService."""
     dto, _ = await asyncio.gather(
         camera_app_service.capture_snapshot(),
         _complete_pending_command(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT),
@@ -441,8 +470,8 @@ async def test_capture_snapshot_waits_for_completion_and_persists_metadata(
     assert dto.captured_at is not None
 
     async with database.session_factory() as session:
-        snapshot_service = SnapshotService(SnapshotRepository(session))
-        persisted = await snapshot_service.get_snapshot(dto.id)
+        saved_media_service = SavedMediaService(SavedMediaRepository(session))
+        persisted = await saved_media_service.get_media(dto.id)
     assert persisted.command_id == dto.command_id
     assert persisted.bucket == SNAPSHOT_RESULT["bucket"]
     assert persisted.original_object_key == SNAPSHOT_RESULT["original_object_key"]
@@ -517,6 +546,181 @@ async def test_capture_snapshot_uses_its_own_timeout_not_the_stream_command_time
 
     dto, _ = await asyncio.gather(service.capture_snapshot(), _complete_after_delay())
     assert dto.filename == SNAPSHOT_RESULT["filename"]
+
+
+# --- CameraApplicationService.start_recording/stop_recording -------------------
+
+
+async def test_start_recording_waits_for_confirmation(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    dto, _ = await asyncio.gather(
+        camera_app_service.start_recording(),
+        _complete_pending_command(
+            database, device.id, "camera.record.start", result=RECORD_START_RESULT
+        ),
+    )
+    assert isinstance(dto, CameraRecordingStartedDTO)
+    assert dto.status == "recording_started"
+    assert dto.filename == RECORD_START_RESULT["filename"]
+    assert dto.width == 1920
+    assert dto.height == 1080
+    assert dto.fps == 30
+    assert dto.started_at is not None
+
+
+async def test_start_recording_without_a_registered_device_raises_not_found(
+    camera_app_service: CameraApplicationService,
+) -> None:
+    with pytest.raises(CameraDeviceNotFoundError):
+        await camera_app_service.start_recording()
+
+
+async def test_start_recording_raises_when_agent_rejects_because_streaming_is_active(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    """The agent fails camera.record.start (not a timeout) if a live stream is active."""
+    with pytest.raises(CameraCommandFailedError):
+        await asyncio.gather(
+            camera_app_service.start_recording(),
+            _complete_pending_command(
+                database,
+                device.id,
+                "camera.record.start",
+                error_message="cannot start recording while a live stream is active",
+            ),
+        )
+
+
+async def test_stop_recording_waits_for_completion_and_persists_metadata(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    """stop_recording returns metadata-only DTO and persists the full VIDEO row."""
+    dto, _ = await asyncio.gather(
+        camera_app_service.stop_recording(),
+        _complete_pending_command(
+            database, device.id, "camera.record.stop", result=RECORD_STOP_RESULT
+        ),
+    )
+    assert isinstance(dto, CameraRecordingDTO)
+    assert dto.bucket == RECORD_STOP_RESULT["bucket"]
+    assert dto.object_key == RECORD_STOP_RESULT["object_key"]
+    assert dto.filename == RECORD_STOP_RESULT["filename"]
+    assert dto.duration_seconds == 60
+    assert dto.width == 1920
+    assert dto.height == 1080
+    assert dto.fps == 30
+    assert dto.bitrate == 8000
+    assert dto.file_size == 1_048_576
+    assert dto.recorded_at is not None
+
+    async with database.session_factory() as session:
+        saved_media_service = SavedMediaService(SavedMediaRepository(session))
+        persisted = await saved_media_service.get_media(dto.id)
+    assert persisted.device_id == device.id
+    assert persisted.media_type == MediaType.VIDEO
+    assert persisted.thumbnail_object_key == RECORD_STOP_RESULT["thumbnail_object_key"]
+    assert persisted.duration == 60
+    assert persisted.fps == 30
+    assert persisted.bitrate == 8000
+    assert persisted.metadata_["upload_duration_seconds"] == 3.2
+
+
+async def test_stop_recording_persists_a_null_thumbnail_when_the_agent_omits_one(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    """A thumbnail is best-effort agent-side — its absence must not break persistence."""
+    result_without_thumbnail = {
+        key: value for key, value in RECORD_STOP_RESULT.items() if key != "thumbnail_object_key"
+    }
+    dto, _ = await asyncio.gather(
+        camera_app_service.stop_recording(),
+        _complete_pending_command(
+            database, device.id, "camera.record.stop", result=result_without_thumbnail
+        ),
+    )
+
+    async with database.session_factory() as session:
+        saved_media_service = SavedMediaService(SavedMediaRepository(session))
+        persisted = await saved_media_service.get_media(dto.id)
+    assert persisted.thumbnail_object_key is None
+
+
+async def test_stop_recording_without_a_registered_device_raises_not_found(
+    camera_app_service: CameraApplicationService,
+) -> None:
+    with pytest.raises(CameraDeviceNotFoundError):
+        await camera_app_service.stop_recording()
+
+
+async def test_stop_recording_raises_when_the_command_fails(
+    camera_app_service: CameraApplicationService,
+    database: Database,
+    device: DeviceDTO,
+) -> None:
+    with pytest.raises(CameraCommandFailedError):
+        await asyncio.gather(
+            camera_app_service.stop_recording(),
+            _complete_pending_command(
+                database, device.id, "camera.record.stop", error_message="no recording in progress"
+            ),
+        )
+
+
+async def test_stop_recording_times_out_when_no_result_arrives(
+    database: Database,
+    event_bus: EventBus,
+    device: DeviceDTO,
+) -> None:
+    impatient_service = CameraApplicationService(
+        database=database,
+        event_bus=event_bus,
+        mediamtx_host="mediamtx.local",
+        mediamtx_playback_port=8889,
+        stream_name="camera",
+        command_timeout_seconds=2.0,
+        command_poll_interval_seconds=0.01,
+        recording_command_timeout_seconds=0.05,
+    )
+    with pytest.raises(CameraCommandTimedOutError):
+        await impatient_service.stop_recording()
+
+
+async def test_stop_recording_uses_its_own_timeout_not_the_stream_command_timeout(
+    database: Database,
+    event_bus: EventBus,
+    device: DeviceDTO,
+) -> None:
+    """A completion slower than start_stream's timeout still succeeds within the longer,
+    recording-specific timeout, proving _wait_for_terminal's timeout_seconds override is
+    actually used here rather than falling back to self._command_timeout_seconds."""
+    service = CameraApplicationService(
+        database=database,
+        event_bus=event_bus,
+        mediamtx_host="mediamtx.local",
+        mediamtx_playback_port=8889,
+        stream_name="camera",
+        command_timeout_seconds=0.05,
+        command_poll_interval_seconds=0.02,
+        recording_command_timeout_seconds=2.0,
+    )
+
+    async def _complete_after_delay() -> None:
+        await asyncio.sleep(0.15)
+        await _complete_pending_command(
+            database, device.id, "camera.record.stop", result=RECORD_STOP_RESULT
+        )
+
+    dto, _ = await asyncio.gather(service.stop_recording(), _complete_after_delay())
+    assert dto.filename == RECORD_STOP_RESULT["filename"]
 
 
 # --- REST API -------------------------------------------------------------
@@ -709,6 +913,115 @@ async def test_api_maps_a_failed_snapshot_command_to_409(
             client.post("/camera/snapshot"),
             _complete_pending_command(
                 database, device.id, "camera.snapshot", error_message="camera not detected"
+            ),
+        )
+        assert response.status_code == 409
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_starts_recording_and_returns_confirmation(
+    database: Database, device: DeviceDTO
+) -> None:
+    """POST /camera/record/start returns the agent's confirmation, no media metadata yet."""
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/record/start"),
+            _complete_pending_command(
+                database, device.id, "camera.record.start", result=RECORD_START_RESULT
+            ),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["status"] == "recording_started"
+        assert body["filename"] == RECORD_START_RESULT["filename"]
+        assert body["width"] == 1920
+        assert body["height"] == 1080
+        assert body["fps"] == 30
+
+
+async def test_api_start_record_returns_404_when_no_device_is_registered(
+    database: Database,
+) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/camera/record/start")
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_maps_a_failed_record_start_command_to_409(
+    database: Database, device: DeviceDTO
+) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/record/start"),
+            _complete_pending_command(
+                database,
+                device.id,
+                "camera.record.start",
+                error_message="cannot start recording while a live stream is active",
+            ),
+        )
+        assert response.status_code == 409
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_stops_recording_and_returns_metadata_only(
+    database: Database, device: DeviceDTO
+) -> None:
+    """POST /camera/record/stop returns metadata-only fields, never a video URL."""
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/record/stop"),
+            _complete_pending_command(
+                database, device.id, "camera.record.stop", result=RECORD_STOP_RESULT
+            ),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["bucket"] == RECORD_STOP_RESULT["bucket"]
+        assert body["object_key"] == RECORD_STOP_RESULT["object_key"]
+        assert body["filename"] == RECORD_STOP_RESULT["filename"]
+        assert body["duration_seconds"] == 60
+        assert body["width"] == 1920
+        assert body["height"] == 1080
+        assert body["fps"] == 30
+        assert body["bitrate"] == 8000
+        assert body["file_size"] == 1_048_576
+        assert "video_url" not in body
+
+
+async def test_api_stop_record_returns_404_when_no_device_is_registered(
+    database: Database,
+) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/camera/record/stop")
+        assert response.status_code == 404
+        assert response.headers["content-type"].startswith("application/problem+json")
+
+
+async def test_api_maps_a_failed_record_stop_command_to_409(
+    database: Database, device: DeviceDTO
+) -> None:
+    app = _app_for(database)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response, _ = await asyncio.gather(
+            client.post("/camera/record/stop"),
+            _complete_pending_command(
+                database,
+                device.id,
+                "camera.record.stop",
+                error_message="no recording in progress",
             ),
         )
         assert response.status_code == 409

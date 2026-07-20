@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.dto.command_dto import CommandDetailDTO
 from app.application.dto.device_dto import CapabilityDTO, DeviceDTO
-from app.application.dto.snapshot_dto import SnapshotDTO, SnapshotPageDTO
+from app.application.dto.saved_media_dto import SavedMediaDTO, SavedMediaPageDTO
 from app.application.events.bus import EventBus
 from app.application.events.domain_events import (
     CommandCompleted,
@@ -31,12 +31,12 @@ from app.application.exceptions import (
     DuplicateCapabilityError,
     InvalidCommandStateError,
     InvalidHeartbeatError,
-    SnapshotNotFoundError,
+    SavedMediaNotFoundError,
 )
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
 from app.application.services.health_service import HealthApplicationService
-from app.application.services.snapshot_service import SnapshotApplicationService
+from app.application.services.saved_media_service import SavedMediaApplicationService
 from app.core.database import Database
 from app.core.s3_client import S3Client
 from app.domains.commands.exceptions import CommandNotFound
@@ -53,10 +53,10 @@ from app.domains.devices.schemas import (
     HeartbeatInput,
 )
 from app.domains.devices.service import DeviceService
-from app.domains.snapshots.exceptions import SnapshotNotFound
-from app.domains.snapshots.models import Snapshot
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
+from app.domains.saved_media.exceptions import SavedMediaNotFound
+from app.domains.saved_media.models import MediaType, SavedMedia
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.domains.workflows.repository import WorkflowRepository
 from app.domains.workflows.schemas import WorkflowCreate
 from app.domains.workflows.service import WorkflowService
@@ -579,7 +579,7 @@ async def test_command_service_expire_old_commands_proxies_to_domain(
     assert expired_count == 0
 
 
-# --- SnapshotApplicationService --------------------------------------------------
+# --- SavedMediaApplicationService --------------------------------------------------
 
 
 class FakeBotoClient:
@@ -609,16 +609,17 @@ class FakeBotoClient:
 
 
 @pytest.fixture
-async def seeded_snapshot(session: AsyncSession) -> Snapshot:
-    """Persist one snapshot, plus the device/command rows its foreign keys require."""
+async def seeded_media(session: AsyncSession) -> SavedMedia:
+    """Persist one IMAGE row, plus the device/command rows its foreign keys require."""
     device = await DeviceService(DeviceRepository(session)).register_device(
         DeviceCreate.model_validate(device_payload())
     )
     command = await CommandRepository(session).create(
         Command(device_id=device.id, command_type="camera.snapshot", payload={})
     )
-    snapshot_service = SnapshotService(SnapshotRepository(session))
-    return await snapshot_service.record_snapshot(
+    saved_media_service = SavedMediaService(SavedMediaRepository(session))
+    return await saved_media_service.record_media(
+        media_type=MediaType.IMAGE,
         device_id=device.id,
         command_id=command.id,
         filename="snapshot.jpg",
@@ -634,29 +635,29 @@ async def seeded_snapshot(session: AsyncSession) -> Snapshot:
     )
 
 
-def _snapshot_app_service(
+def _saved_media_app_service(
     session: AsyncSession, *, s3_client: S3Client | None, ttl_seconds: float = 300.0
-) -> SnapshotApplicationService:
-    return SnapshotApplicationService(
-        SnapshotService(SnapshotRepository(session)),
+) -> SavedMediaApplicationService:
+    return SavedMediaApplicationService(
+        SavedMediaService(SavedMediaRepository(session)),
         s3_client=s3_client,
         presigned_url_ttl_seconds=ttl_seconds,
     )
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_get_snapshot_returns_dto_with_presigned_urls(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_get_media_returns_dto_with_presigned_urls(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
-    """get_snapshot mints one presigned URL per object key and never returns raw keys."""
+    """get_media mints one presigned URL per object key and never returns raw keys."""
     fake = FakeBotoClient(presigned_url="https://s3.example/signed")
-    service = _snapshot_app_service(
+    service = _saved_media_app_service(
         session, s3_client=S3Client(client=fake, bucket="samslab-snapshots")
     )
 
-    dto = await service.get_snapshot(seeded_snapshot.id)
+    dto = await service.get_media(seeded_media.id)
 
-    assert isinstance(dto, SnapshotDTO)
+    assert isinstance(dto, SavedMediaDTO)
     assert dto.thumbnail_url == "https://s3.example/signed"
     assert dto.image_url == "https://s3.example/signed"
     assert {call["Params"]["Key"] for call in fake.presign_calls} == {
@@ -666,125 +667,165 @@ async def test_snapshot_service_get_snapshot_returns_dto_with_presigned_urls(
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_presigned_urls_reflect_the_injected_ttl(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_presigned_urls_reflect_the_injected_ttl(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
     """The configured presigned_url_ttl_seconds reaches boto3's ExpiresIn unchanged."""
     fake = FakeBotoClient()
-    service = _snapshot_app_service(
+    service = _saved_media_app_service(
         session, s3_client=S3Client(client=fake, bucket="b"), ttl_seconds=120.0
     )
 
-    await service.get_snapshot(seeded_snapshot.id)
+    await service.get_media(seeded_media.id)
 
     assert fake.presign_calls
     assert all(call["ExpiresIn"] == 120 for call in fake.presign_calls)
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_get_snapshot_urls_are_empty_when_s3_unconfigured(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_get_media_urls_are_empty_when_s3_unconfigured(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
     """An unconfigured S3 adapter yields empty-string URLs rather than raising."""
-    service = _snapshot_app_service(session, s3_client=None)
+    service = _saved_media_app_service(session, s3_client=None)
 
-    dto = await service.get_snapshot(seeded_snapshot.id)
+    dto = await service.get_media(seeded_media.id)
 
     assert dto.thumbnail_url == ""
     assert dto.image_url == ""
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_get_snapshot_translates_not_found(session: AsyncSession) -> None:
-    """A missing snapshot id raises the application's not-found error, not the domain's."""
-    service = _snapshot_app_service(session, s3_client=None)
-    with pytest.raises(SnapshotNotFoundError):
-        await service.get_snapshot(uuid4())
+async def test_saved_media_service_get_media_translates_not_found(session: AsyncSession) -> None:
+    """A missing id raises the application's not-found error, not the domain's."""
+    service = _saved_media_app_service(session, s3_client=None)
+    with pytest.raises(SavedMediaNotFoundError):
+        await service.get_media(uuid4())
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_list_snapshots_returns_page_dto_with_urls(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_list_media_returns_page_dto_with_urls(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
-    """list_snapshots returns a bounded page of DTOs, each carrying fresh presigned URLs."""
+    """list_media returns a bounded page of DTOs, each carrying fresh presigned URLs."""
     fake = FakeBotoClient()
-    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+    service = _saved_media_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
 
-    page = await service.list_snapshots(device_id=None, offset=0, limit=10)
+    page = await service.list_media(
+        device_id=None, media_type=None, captured_after=None, offset=0, limit=10
+    )
 
-    assert isinstance(page, SnapshotPageDTO)
+    assert isinstance(page, SavedMediaPageDTO)
     assert page.total == 1
-    assert page.items[0].id == seeded_snapshot.id
+    assert page.items[0].id == seeded_media.id
     assert page.items[0].thumbnail_url == fake.presigned_url
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_delete_snapshot_deletes_both_s3_objects_and_the_row(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_delete_media_deletes_both_s3_objects_and_the_row(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
-    """Deleting a snapshot removes both S3 objects and hard-deletes the metadata row."""
+    """Deleting a row removes both S3 objects and hard-deletes the metadata row."""
     fake = FakeBotoClient()
-    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+    service = _saved_media_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
 
-    await service.delete_snapshot(seeded_snapshot.id)
+    await service.delete_media(seeded_media.id)
 
     assert {call["Key"] for call in fake.delete_calls} == {
         "originals/snapshot.jpg",
         "thumbnails/snapshot.jpg",
     }
-    with pytest.raises(SnapshotNotFoundError):
-        await service.get_snapshot(seeded_snapshot.id)
+    with pytest.raises(SavedMediaNotFoundError):
+        await service.get_media(seeded_media.id)
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_delete_snapshot_survives_an_s3_delete_failure(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_delete_media_survives_an_s3_delete_failure(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
     """An S3 delete failure is swallowed (logged) and never blocks the row's deletion."""
     fake = FakeBotoClient(fail_delete=True)
-    service = _snapshot_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+    service = _saved_media_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
 
-    await service.delete_snapshot(seeded_snapshot.id)
+    await service.delete_media(seeded_media.id)
 
-    with pytest.raises(SnapshotNotFoundError):
-        await service.get_snapshot(seeded_snapshot.id)
+    with pytest.raises(SavedMediaNotFoundError):
+        await service.get_media(seeded_media.id)
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_delete_snapshot_works_when_s3_is_unconfigured(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_delete_media_works_when_s3_is_unconfigured(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
     """No S3 adapter at all is likewise never a blocker for deleting the metadata row."""
-    service = _snapshot_app_service(session, s3_client=None)
+    service = _saved_media_app_service(session, s3_client=None)
 
-    await service.delete_snapshot(seeded_snapshot.id)
+    await service.delete_media(seeded_media.id)
 
-    with pytest.raises(SnapshotNotFoundError):
-        await service.get_snapshot(seeded_snapshot.id)
-
-
-@pytest.mark.asyncio
-async def test_snapshot_service_delete_snapshot_translates_not_found(session: AsyncSession) -> None:
-    """Deleting a missing snapshot id raises the application's not-found error."""
-    service = _snapshot_app_service(session, s3_client=None)
-    with pytest.raises(SnapshotNotFoundError):
-        await service.delete_snapshot(uuid4())
+    with pytest.raises(SavedMediaNotFoundError):
+        await service.get_media(seeded_media.id)
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_get_snapshot_resolves_workflow_name_when_present(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_delete_media_translates_not_found(session: AsyncSession) -> None:
+    """Deleting a missing id raises the application's not-found error."""
+    service = _saved_media_app_service(session, s3_client=None)
+    with pytest.raises(SavedMediaNotFoundError):
+        await service.delete_media(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_saved_media_service_delete_media_skips_a_missing_thumbnail_key(
+    session: AsyncSession,
 ) -> None:
-    """A workflow-linked snapshot's DTO carries the originating workflow's current name."""
+    """A VIDEO row's null thumbnail_object_key is never passed to delete_object."""
+    device = await DeviceService(DeviceRepository(session)).register_device(
+        DeviceCreate.model_validate(device_payload())
+    )
+    command = await CommandRepository(session).create(
+        Command(device_id=device.id, command_type="camera.record.stop", payload={})
+    )
+    video = await SavedMediaService(SavedMediaRepository(session)).record_media(
+        media_type=MediaType.VIDEO,
+        device_id=device.id,
+        command_id=command.id,
+        filename="recording.mp4",
+        bucket="samslab-videos",
+        original_object_key="videos/recording.mp4",
+        thumbnail_object_key=None,
+        etag='"abc123"',
+        sha256="a" * 64,
+        width=1920,
+        height=1080,
+        duration=60,
+        fps=30,
+        bitrate=8000,
+        size=1_048_576,
+        captured_at=datetime.now(UTC),
+    )
+    fake = FakeBotoClient()
+    service = _saved_media_app_service(session, s3_client=S3Client(client=fake, bucket="b"))
+
+    await service.delete_media(video.id)
+
+    assert {call["Key"] for call in fake.delete_calls} == {"videos/recording.mp4"}
+
+
+@pytest.mark.asyncio
+async def test_saved_media_service_get_media_resolves_workflow_name_when_present(
+    session: AsyncSession, seeded_media: SavedMedia
+) -> None:
+    """A workflow-linked row's DTO carries the originating workflow's current name."""
     workflow_service = WorkflowService(WorkflowRepository(session))
     workflow = await workflow_service.register_workflow(WorkflowCreate(name="Nightly patrol"))
     second_command = await CommandRepository(session).create(
         Command(
-            device_id=seeded_snapshot.device_id, command_type="camera.snapshot", payload={}
+            device_id=seeded_media.device_id, command_type="camera.snapshot", payload={}
         )
     )
-    await SnapshotService(SnapshotRepository(session)).record_snapshot(
-        device_id=seeded_snapshot.device_id,
+    await SavedMediaService(SavedMediaRepository(session)).record_media(
+        media_type=MediaType.IMAGE,
+        device_id=seeded_media.device_id,
         command_id=second_command.id,
         filename="linked.jpg",
         bucket="samslab-snapshots",
@@ -799,25 +840,27 @@ async def test_snapshot_service_get_snapshot_resolves_workflow_name_when_present
         workflow_id=workflow.id,
         workflow_run_id=uuid4(),
     )
-    service = SnapshotApplicationService(
-        SnapshotService(SnapshotRepository(session)),
+    service = SavedMediaApplicationService(
+        SavedMediaService(SavedMediaRepository(session)),
         s3_client=None,
         presigned_url_ttl_seconds=300.0,
         workflow_service=workflow_service,
     )
 
-    page = await service.list_snapshots(device_id=None, offset=0, limit=10)
+    page = await service.list_media(
+        device_id=None, media_type=None, captured_after=None, offset=0, limit=10
+    )
 
     linked = next(item for item in page.items if item.filename == "linked.jpg")
     assert linked.workflow_id == workflow.id
     assert linked.workflow_name == "Nightly patrol"
-    unlinked = next(item for item in page.items if item.id == seeded_snapshot.id)
+    unlinked = next(item for item in page.items if item.id == seeded_media.id)
     assert unlinked.workflow_id is None
     assert unlinked.workflow_name is None
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_workflow_name_is_none_without_a_workflow_service(
+async def test_saved_media_service_workflow_name_is_none_without_a_workflow_service(
     session: AsyncSession,
 ) -> None:
     """Omitting workflow_service (the delete-cascade path) never resolves a name."""
@@ -829,7 +872,8 @@ async def test_snapshot_service_workflow_name_is_none_without_a_workflow_service
     command = await CommandRepository(session).create(
         Command(device_id=device.id, command_type="camera.snapshot", payload={})
     )
-    await SnapshotService(SnapshotRepository(session)).record_snapshot(
+    await SavedMediaService(SavedMediaRepository(session)).record_media(
+        media_type=MediaType.IMAGE,
         device_id=device.id,
         command_id=command.id,
         filename="linked.jpg",
@@ -845,34 +889,36 @@ async def test_snapshot_service_workflow_name_is_none_without_a_workflow_service
         workflow_id=workflow.id,
         workflow_run_id=uuid4(),
     )
-    service = _snapshot_app_service(session, s3_client=None)
+    service = _saved_media_app_service(session, s3_client=None)
 
-    dto = await service.list_snapshots(device_id=None, offset=0, limit=10)
+    dto = await service.list_media(
+        device_id=None, media_type=None, captured_after=None, offset=0, limit=10
+    )
 
     assert dto.items[0].workflow_id == workflow.id
     assert dto.items[0].workflow_name is None
 
 
 @pytest.mark.asyncio
-async def test_snapshot_service_delete_snapshot_translates_a_race_after_the_initial_lookup(
-    session: AsyncSession, seeded_snapshot: Snapshot
+async def test_saved_media_service_delete_media_translates_a_race_after_the_initial_lookup(
+    session: AsyncSession, seeded_media: SavedMedia
 ) -> None:
-    """delete_snapshot's own second try/except (post-S3-cleanup) is reached via a stubbed
-    domain service — the real domain delete_snapshot can't itself raise once get_snapshot
+    """delete_media's own second try/except (post-S3-cleanup) is reached via a stubbed
+    domain service — the real domain delete_media can't itself raise once get_media
     already found the row, so this proves the translation still fires if a future
     concurrent-delete race ever does trigger it, mirroring _FailingCommandService above."""
 
-    class _FailingSnapshotService(SnapshotService):
-        async def delete_snapshot(self, snapshot_id: UUID) -> Snapshot:
-            raise SnapshotNotFound("simulated concurrent delete")
+    class _FailingSavedMediaService(SavedMediaService):
+        async def delete_media(self, media_id: UUID) -> SavedMedia:
+            raise SavedMediaNotFound("simulated concurrent delete")
 
-    stub_service = SnapshotApplicationService(
-        _FailingSnapshotService(SnapshotRepository(session)),
+    stub_service = SavedMediaApplicationService(
+        _FailingSavedMediaService(SavedMediaRepository(session)),
         s3_client=None,
         presigned_url_ttl_seconds=300.0,
     )
-    with pytest.raises(SnapshotNotFoundError):
-        await stub_service.delete_snapshot(seeded_snapshot.id)
+    with pytest.raises(SavedMediaNotFoundError):
+        await stub_service.delete_media(seeded_media.id)
 
 
 # --- HealthApplicationService --------------------------------------------------

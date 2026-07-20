@@ -35,11 +35,11 @@ from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.schemas import DeviceCreate
 from app.domains.devices.service import DeviceService
+from app.domains.saved_media.models import SavedMedia
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.domains.schedules.models import Schedule, ScheduleRunStatus, ScheduleType
 from app.domains.schedules.schemas import ScheduleCreate
-from app.domains.snapshots.models import Snapshot
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
 from app.domains.workflows.models import WorkflowRun, WorkflowStepType
 from app.domains.workflows.schemas import WorkflowCreate, WorkflowStepCreate
 
@@ -396,9 +396,9 @@ async def test_delete_schedule_without_artifacts_keeps_generated_snapshot_and_ru
         await schedule_app_service.get_schedule(created.id)
 
     async with database.session_factory() as session:
-        snapshots = list((await session.execute(select(Snapshot))).scalars())
+        media_rows = list((await session.execute(select(SavedMedia))).scalars())
         runs = list((await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars())
-    assert len(snapshots) == 1
+    assert len(media_rows) == 1
     assert len(runs) == 1
 
 
@@ -423,8 +423,8 @@ async def test_delete_schedule_with_artifacts_removes_generated_snapshot_command
     await schedule_app_service.delete_schedule(created.id, delete_artifacts=True)
 
     async with database.session_factory() as session:
-        snapshots, _ = await SnapshotService(SnapshotRepository(session)).list_snapshots(
-            device_id=None, offset=0, limit=10
+        media_rows, _ = await SavedMediaService(SavedMediaRepository(session)).list_media(
+            device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
         runs = list((await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars())
         commands = list(
@@ -434,7 +434,7 @@ async def test_delete_schedule_with_artifacts_removes_generated_snapshot_command
                 )
             ).scalars()
         )
-    assert snapshots == []
+    assert media_rows == []
     assert runs == []
     assert commands == []
 
@@ -475,7 +475,7 @@ async def test_delete_schedule_with_artifacts_skips_a_non_terminal_command_witho
     assert runs == []
 
 
-async def test_cascade_delete_attempts_s3_delete_via_existing_snapshot_service(
+async def test_cascade_delete_attempts_s3_delete_via_existing_saved_media_service(
     workflow_app_service: WorkflowApplicationService,
     database: Database,
     device: DeviceDTO,

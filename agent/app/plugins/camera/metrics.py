@@ -38,3 +38,19 @@ CAMERA_SNAPSHOT_UPLOAD_DURATION_SECONDS = Histogram(
 CAMERA_SNAPSHOT_FAILURES_TOTAL = Counter(
     "camera_snapshot_failures_total", "Total camera.snapshot commands that failed to capture or upload"
 )
+CAMERA_RECORDING_ACTIVE = Gauge(
+    "camera_recording_active", "Whether local MP4 recording is currently active (0/1)"
+)
+CAMERA_RECORDINGS_TOTAL = Counter(
+    "camera_recordings_total",
+    "Total camera.record.stop commands that finalized and uploaded a recording successfully",
+)
+CAMERA_RECORD_DURATION_SECONDS = Histogram(
+    "camera_record_duration_seconds", "Duration of completed camera recordings"
+)
+CAMERA_RECORD_UPLOAD_DURATION_SECONDS = Histogram(
+    "camera_record_upload_duration_seconds", "Time spent uploading a finalized recording to S3"
+)
+CAMERA_RECORD_FAILURES_TOTAL = Counter(
+    "camera_record_failures_total", "Total camera.record.start/stop commands that failed"
+)

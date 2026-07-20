@@ -1,8 +1,8 @@
 import { formatFileSize, formatRelativeTime } from "@/lib/format";
-import type { SnapshotDTO } from "@/types/api";
+import type { SavedMediaDTO } from "@/types/api";
 
 interface SnapshotCardProps {
-  snapshot: SnapshotDTO;
+  snapshot: SavedMediaDTO;
   deviceName: string;
   onClick: () => void;
 }

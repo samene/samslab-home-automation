@@ -18,7 +18,14 @@ class CameraPlugin(Plugin):
         self._camera_service = camera_service
 
     async def on_shutdown(self) -> None:
-        """Stop any in-progress stream so ffmpeg/the camera device aren't left open."""
+        """Stop any in-progress stream so ffmpeg/the camera device aren't left open.
+
+        Deliberately does not also stop/upload an in-progress recording here:
+        unlike the live stream (fine to just drop), a recording's whole
+        value is the finalized file — an in-flight upload is better
+        interrupted and retried by an operator than raced against process
+        shutdown.
+        """
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._camera_service.stop)
 

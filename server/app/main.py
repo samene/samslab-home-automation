@@ -39,8 +39,8 @@ from app.core.problems import (
 from app.domains.auth.api import router as auth_router
 from app.domains.commands.api import router as commands_router
 from app.domains.devices.api import router as devices_router
+from app.domains.saved_media.api import router as saved_media_router
 from app.domains.schedules.api import router as schedules_router
-from app.domains.snapshots.api import router as snapshots_router
 from app.domains.workflows.api import router as workflows_router
 from app.domains.workflows.repository import WorkflowRepository
 from app.domains.workflows.service import WorkflowService
@@ -273,12 +273,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 ),
             },
             {
-                "name": "Snapshots",
+                "name": "Saved Media",
                 "description": (
-                    "High-resolution still-image metadata, captured via camera.snapshot "
-                    "commands and uploaded directly to Amazon S3 by the agent. The "
-                    "backend never proxies image bytes; it only mints fresh, "
-                    "short-lived presigned URLs on read."
+                    "Image and video metadata, captured via camera.snapshot/"
+                    "camera.record.* commands and uploaded directly to Amazon S3 "
+                    "by the agent. The backend never proxies media bytes; it "
+                    "only mints fresh, short-lived presigned URLs on read."
                 ),
             },
             {
@@ -318,7 +318,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(build_websocket_router(resolved_settings))
     application.include_router(dispatcher_router)
     application.include_router(camera_router)
-    application.include_router(snapshots_router)
+    application.include_router(saved_media_router)
     application.include_router(workflows_router)
     application.include_router(schedules_router)
     application.include_router(mediamtx_jwks_router)

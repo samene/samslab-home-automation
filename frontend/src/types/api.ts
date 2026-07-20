@@ -209,17 +209,24 @@ export interface CameraSnapshotDTO {
   captured_at: string;
 }
 
-export interface SnapshotDTO {
+export type MediaType = "IMAGE" | "VIDEO";
+
+export interface SavedMediaDTO {
   id: string;
+  media_type: MediaType;
   device_id: string;
   command_id: string;
   filename: string;
   thumbnail_url: string;
   image_url: string;
+  video_url: string;
   etag: string | null;
   sha256: string;
   width: number;
   height: number;
+  duration: number | null;
+  fps: number | null;
+  bitrate: number | null;
   size: number;
   captured_at: string;
   created_at: string;
@@ -228,8 +235,8 @@ export interface SnapshotDTO {
   workflow_name: string | null;
 }
 
-export interface SnapshotPageDTO {
-  items: SnapshotDTO[];
+export interface SavedMediaPageDTO {
+  items: SavedMediaDTO[];
   total: number;
   offset: number;
   limit: number;

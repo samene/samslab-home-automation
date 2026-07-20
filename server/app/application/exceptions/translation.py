@@ -23,8 +23,8 @@ from app.application.exceptions.errors import (
     InvalidHeartbeatError,
     InvalidTokenError,
     PermissionDeniedError,
+    SavedMediaNotFoundError,
     ScheduleNotFoundError,
-    SnapshotNotFoundError,
     WorkflowNotFoundError,
 )
 from app.domains.auth.exceptions import (
@@ -44,8 +44,8 @@ from app.domains.devices.exceptions import (
     DuplicateCapability,
     InvalidHeartbeat,
 )
+from app.domains.saved_media.exceptions import SavedMediaNotFound
 from app.domains.schedules.exceptions import ScheduleNotFound
-from app.domains.snapshots.exceptions import SnapshotNotFound
 from app.domains.workflows.exceptions import WorkflowNotFound
 
 _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
@@ -63,7 +63,7 @@ _TRANSLATIONS: dict[type[Exception], type[ApplicationError]] = {
     DisabledDevice: DisabledDeviceError,
     DeviceCredentialNotFound: DeviceCredentialNotFoundError,
     DeviceCredentialAlreadyExists: DeviceCredentialAlreadyExistsError,
-    SnapshotNotFound: SnapshotNotFoundError,
+    SavedMediaNotFound: SavedMediaNotFoundError,
     WorkflowNotFound: WorkflowNotFoundError,
     ScheduleNotFound: ScheduleNotFoundError,
 }

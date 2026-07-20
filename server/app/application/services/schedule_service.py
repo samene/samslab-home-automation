@@ -17,10 +17,10 @@ Workflow Engine's and Command Framework's own ORM models directly (``Command``,
 queries, rather than adding a new method to either domain's repository — a
 documented exception, chosen specifically because those domains' own files
 must never be modified for this feature. Every other cross-domain need
-(resolving a workflow's name, deleting a Snapshot, deleting a terminal
-Command) reuses an already-existing, already-tested public method exactly
-as-is (``WorkflowService.get_workflow_names``, ``SnapshotApplicationService.
-delete_snapshot``, ``CommandService.delete_command``).
+(resolving a workflow's name, deleting a saved media row, deleting a
+terminal Command) reuses an already-existing, already-tested public method
+exactly as-is (``WorkflowService.get_workflow_names``,
+``SavedMediaApplicationService.delete_media``, ``CommandService.delete_command``).
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ from app.application.exceptions import (
     translate_domain_error,
 )
 from app.application.mappers.schedule_mapper import to_schedule_dto, to_schedule_execution_dto
+from app.application.services.saved_media_service import SavedMediaApplicationService
 from app.application.services.schedule_run_registry import ScheduleRunRegistry
-from app.application.services.snapshot_service import SnapshotApplicationService
 from app.application.services.workflow_service import WorkflowApplicationService
 from app.application.validators import PaginationParams
 from app.core.database import Database
@@ -55,14 +55,14 @@ from app.domains.commands.exceptions import CommandDomainError
 from app.domains.commands.models import TERMINAL_STATUSES, Command
 from app.domains.commands.repository import CommandRepository
 from app.domains.commands.service import CommandService
+from app.domains.saved_media.models import SavedMedia
+from app.domains.saved_media.repository import SavedMediaRepository
+from app.domains.saved_media.service import SavedMediaService
 from app.domains.schedules.exceptions import ScheduleDomainError
 from app.domains.schedules.models import ScheduleRunStatus, ScheduleType
 from app.domains.schedules.repository import ScheduleRepository
 from app.domains.schedules.schemas import ScheduleCreate, ScheduleUpdate
 from app.domains.schedules.service import ScheduleService
-from app.domains.snapshots.models import Snapshot
-from app.domains.snapshots.repository import SnapshotRepository
-from app.domains.snapshots.service import SnapshotService
 from app.domains.workflows.exceptions import WorkflowDomainError, WorkflowNotFound
 from app.domains.workflows.models import WorkflowRun, WorkflowRunStatus, WorkflowStepRun
 from app.domains.workflows.repository import WorkflowRepository
@@ -96,7 +96,7 @@ class ScheduleApplicationService:
         """Bind to shared infrastructure plus the already-built Workflow application service.
 
         ``s3_client``/``presigned_url_ttl_seconds`` exist only to reuse
-        ``SnapshotApplicationService.delete_snapshot``'s S3-cleanup logic for
+        ``SavedMediaApplicationService.delete_media``'s S3-cleanup logic for
         cascade-delete, exactly like ``WorkflowApplicationService`` already does.
         """
         self._database = database
@@ -193,7 +193,7 @@ class ScheduleApplicationService:
     async def delete_schedule(self, schedule_id: UUID, *, delete_artifacts: bool = False) -> None:
         """Unregister the live job, optionally cascade-delete everything it ever produced.
 
-        Snapshots/Commands/Workflow executions aren't touched by default —
+        Saved media/Commands/Workflow executions aren't touched by default —
         a schedule's firing history and what it produced are independently
         useful even after the schedule itself is gone (matches
         ``WorkflowApplicationService.delete_workflow``'s own default).
@@ -424,30 +424,30 @@ class ScheduleApplicationService:
             await service.delete_executions(schedule_id)
             await session.commit()
         for run_id in run_ids:
-            await self._delete_snapshots_for_run(run_id)
+            await self._delete_saved_media_for_run(run_id)
             await self._delete_commands_for_run(run_id)
             await self._delete_workflow_run(run_id)
 
-    async def _delete_snapshots_for_run(self, run_id: UUID) -> None:
+    async def _delete_saved_media_for_run(self, run_id: UUID) -> None:
         async with self._database.session_factory() as session:
             result = await session.execute(
-                select(Snapshot.id).where(Snapshot.workflow_run_id == run_id)
+                select(SavedMedia.id).where(SavedMedia.workflow_run_id == run_id)
             )
-            snapshot_ids = list(result.scalars())
+            media_ids = list(result.scalars())
             await session.commit()
-        for snapshot_id in snapshot_ids:
+        for media_id in media_ids:
             async with self._database.session_factory() as session:
-                snapshot_app_service = SnapshotApplicationService(
-                    SnapshotService(SnapshotRepository(session)),
+                saved_media_app_service = SavedMediaApplicationService(
+                    SavedMediaService(SavedMediaRepository(session)),
                     s3_client=self._s3_client,
                     presigned_url_ttl_seconds=self._presigned_url_ttl_seconds,
                 )
                 try:
-                    await snapshot_app_service.delete_snapshot(snapshot_id)
+                    await saved_media_app_service.delete_media(media_id)
                 except ApplicationError as error:
                     logger.warning(
-                        "schedule_cascade_snapshot_delete_failed",
-                        snapshot_id=str(snapshot_id),
+                        "schedule_cascade_saved_media_delete_failed",
+                        media_id=str(media_id),
                         error=str(error),
                     )
                 await session.commit()

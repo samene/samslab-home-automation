@@ -34,7 +34,13 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.dto.camera_dto import CameraSnapshotDTO, CameraStatusDTO, CameraStopDTO
+from app.application.dto.camera_dto import (
+    CameraRecordingDTO,
+    CameraRecordingStartedDTO,
+    CameraSnapshotDTO,
+    CameraStatusDTO,
+    CameraStopDTO,
+)
 from app.application.dto.command_dto import CommandDetailDTO
 from app.application.events.bus import EventBus
 from app.application.exceptions import (
@@ -42,8 +48,17 @@ from app.application.exceptions import (
     CameraCommandTimedOutError,
     CameraDeviceNotFoundError,
 )
-from app.application.mappers.snapshot_mapper import to_camera_snapshot_dto
-from app.application.services.command_artifacts import record_snapshot_from_command
+from app.application.mappers.saved_media_mapper import (
+    to_camera_recording_dto,
+    to_camera_snapshot_dto,
+)
+from app.application.services.camera_metrics import (
+    CAMERA_RECORD_DURATION_SECONDS,
+    CAMERA_RECORD_FAILURES_TOTAL,
+    CAMERA_RECORD_UPLOAD_DURATION_SECONDS,
+    CAMERA_RECORDINGS_TOTAL,
+)
+from app.application.services.command_artifacts import record_media_from_command
 from app.application.services.command_service import CommandApplicationService
 from app.application.services.device_service import DeviceApplicationService
 from app.core.database import Database
@@ -58,6 +73,8 @@ from app.domains.devices.service import DeviceService
 CAMERA_STREAM_START = "camera.stream.start"
 CAMERA_STREAM_STOP = "camera.stream.stop"
 CAMERA_SNAPSHOT = "camera.snapshot"
+CAMERA_RECORD_START = "camera.record.start"
+CAMERA_RECORD_STOP = "camera.record.stop"
 
 
 class CameraApplicationService:
@@ -78,6 +95,7 @@ class CameraApplicationService:
         command_timeout_seconds: float,
         command_poll_interval_seconds: float,
         snapshot_command_timeout_seconds: float = 60.0,
+        recording_command_timeout_seconds: float = 900.0,
     ) -> None:
         """Bind to the shared database/event bus and the MediaMTX playback configuration."""
         self._database = database
@@ -92,6 +110,7 @@ class CameraApplicationService:
         self._command_timeout_seconds = command_timeout_seconds
         self._command_poll_interval_seconds = command_poll_interval_seconds
         self._snapshot_command_timeout_seconds = snapshot_command_timeout_seconds
+        self._recording_command_timeout_seconds = recording_command_timeout_seconds
 
     async def start_stream(self) -> CameraStatusDTO:
         """Issue ``camera.stream.start`` and wait for the device to confirm it's live."""
@@ -170,7 +189,7 @@ class CameraApplicationService:
         ``_snapshot_command_timeout_seconds``) since a standalone capture may
         need to open the camera, capture, encode, and upload two files to S3
         before it completes. Never touches S3 itself — only
-        ``SnapshotApplicationService`` (``GET /snapshots``) ever mints a
+        ``SavedMediaApplicationService`` (``GET /saved-media``) ever mints a
         presigned URL for the resulting image.
         """
         device_id = await self._require_primary_device_id()
@@ -183,7 +202,7 @@ class CameraApplicationService:
         # Dashboard action, never a Workflow's Command Task — see
         # WorkflowApplicationService._execute_command_step for the other
         # caller of this same shared helper.
-        snapshot = await record_snapshot_from_command(
+        media = await record_media_from_command(
             self._database,
             command_type=CAMERA_SNAPSHOT,
             device_id=device_id,
@@ -191,8 +210,76 @@ class CameraApplicationService:
             result=result,
             workflow_run_id=None,
         )
-        assert snapshot is not None  # CAMERA_SNAPSHOT always produces one
-        return to_camera_snapshot_dto(snapshot)
+        assert media is not None  # CAMERA_SNAPSHOT always produces one
+        return to_camera_snapshot_dto(media)
+
+    async def start_recording(self) -> CameraRecordingStartedDTO:
+        """Issue ``camera.record.start`` and wait for the device to confirm it began.
+
+        Independent of streaming — the agent rejects this command (a failed,
+        not a timed-out, command) if a live stream is already active, since
+        the camera hardware only supports one open capture handle at a time.
+        Waits only the short default timeout: starting local recording is
+        fast, unlike ``stop_recording`` which must wait for the full S3
+        upload of the finished file.
+        """
+        device_id = await self._require_primary_device_id()
+        command_id = await self._create_command(device_id, CAMERA_RECORD_START)
+        try:
+            completed = await self._wait_for_terminal(command_id)
+        except (CameraCommandFailedError, CameraCommandTimedOutError):
+            CAMERA_RECORD_FAILURES_TOTAL.inc()
+            raise
+        result = completed.result.result if completed.result else {}
+        return CameraRecordingStartedDTO(
+            status=str(result.get("status", "recording_started")),
+            filename=str(result.get("filename", "")),
+            width=result.get("width"),
+            height=result.get("height"),
+            fps=result.get("fps"),
+            started_at=self._parse_timestamp(result.get("started_at")) or completed.completed_at,
+        )
+
+    async def stop_recording(self) -> CameraRecordingDTO:
+        """Issue ``camera.record.stop``, wait for it to complete, and persist its metadata.
+
+        Waits far longer than any other camera command (see
+        ``_recording_command_timeout_seconds``) — finalizing a local MP4 and
+        uploading it to S3 can take minutes for a large file. Never touches
+        S3 itself — only ``SavedMediaApplicationService``
+        (``GET /saved-media``) ever mints a presigned URL for the resulting
+        video.
+        """
+        device_id = await self._require_primary_device_id()
+        command_id = await self._create_command(device_id, CAMERA_RECORD_STOP)
+        try:
+            completed = await self._wait_for_terminal(
+                command_id, timeout_seconds=self._recording_command_timeout_seconds
+            )
+        except (CameraCommandFailedError, CameraCommandTimedOutError):
+            CAMERA_RECORD_FAILURES_TOTAL.inc()
+            raise
+        result = completed.result.result if completed.result else {}
+        # workflow_run_id=None: this call always originates from a direct
+        # Dashboard action — see record_media_from_command's other caller,
+        # WorkflowApplicationService._execute_command_step, for the
+        # Workflow-triggered "Stop Recording" step path.
+        media = await record_media_from_command(
+            self._database,
+            command_type=CAMERA_RECORD_STOP,
+            device_id=device_id,
+            command_id=command_id,
+            result=result,
+            workflow_run_id=None,
+        )
+        assert media is not None  # CAMERA_RECORD_STOP always produces one
+        upload_duration = result.get("upload_duration")
+        upload_duration_seconds = float(upload_duration) if upload_duration is not None else 0.0
+        CAMERA_RECORDINGS_TOTAL.inc()
+        if media.duration is not None:
+            CAMERA_RECORD_DURATION_SECONDS.observe(media.duration)
+        CAMERA_RECORD_UPLOAD_DURATION_SECONDS.observe(upload_duration_seconds)
+        return to_camera_recording_dto(media, upload_duration_seconds=upload_duration_seconds)
 
     # --- per-operation session helpers, mirroring app/dispatcher/dispatcher.py's CommandGateway ---
 

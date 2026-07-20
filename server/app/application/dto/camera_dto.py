@@ -45,8 +45,8 @@ class CameraSnapshotDTO(BaseModel):
     """Outcome of a ``camera.snapshot`` command — metadata only, never image bytes.
 
     Deliberately has no ``thumbnail_url``/``image_url``: those are minted
-    only by ``SnapshotApplicationService`` (``GET /snapshots``,
-    ``GET /snapshots/{id}``), not here — see ``CameraApplicationService``'s
+    only by ``SavedMediaApplicationService`` (``GET /saved-media``,
+    ``GET /saved-media/{id}``), not here — see ``CameraApplicationService``'s
     docstring for why ``capture_snapshot`` never touches S3 for reads.
     """
 
@@ -58,3 +58,38 @@ class CameraSnapshotDTO(BaseModel):
     height: int
     size: int
     captured_at: datetime
+
+
+class CameraRecordingStartedDTO(BaseModel):
+    """Outcome of a ``camera.record.start`` command — recording is now in progress."""
+
+    status: str
+    filename: str
+    width: int | None = None
+    height: int | None = None
+    fps: int | None = None
+    started_at: datetime | None = None
+
+
+class CameraRecordingDTO(BaseModel):
+    """Outcome of a ``camera.record.stop`` command — metadata only, never video bytes.
+
+    Deliberately has no ``video_url``: that's minted only by
+    ``SavedMediaApplicationService`` (``GET /saved-media/{id}``), not here —
+    same reasoning as ``CameraSnapshotDTO``.
+    """
+
+    id: UUID
+    bucket: str
+    object_key: str
+    etag: str | None
+    sha256: str
+    filename: str
+    duration_seconds: float
+    width: int
+    height: int
+    fps: int | None
+    bitrate: int | None
+    file_size: int
+    recorded_at: datetime
+    upload_duration_seconds: float

@@ -10,9 +10,11 @@ Live streaming — starting, stopping, and reporting the status of one RTSP
 stream published to an already-deployed MediaMTX instance, viewed by the
 browser through MediaMTX's own playback page — is implemented. High-resolution
 still-image capture ("snapshot"), independent of streaming and uploaded
-directly to Amazon S3, is also implemented (see "Snapshot capture" below).
-Video recording and AI/vision processing are explicitly **not** part of this
-phase; see Future Considerations.
+directly to Amazon S3, is also implemented (see "Snapshot capture" below), as
+is local, high-quality video recording with direct-to-S3 upload (independent
+of streaming and of MediaMTX — see the server's `docs/architecture/`
+Saved Media notes and "On-sensor HDR" below). AI/vision processing is
+explicitly **not** part of this phase; see Future Considerations.
 
 ## Architecture
 
@@ -372,6 +374,42 @@ streaming or the rest of the server.
 `camera_snapshot_duration_seconds` (capture+encode, excludes upload),
 `camera_snapshot_upload_duration_seconds`, `camera_snapshot_failures_total`.
 
+### On-sensor HDR for Camera Module 3 (implemented)
+
+`capture_snapshot()`'s fresh-open (idle) path and `start_recording()`/
+`stop_recording()` both toggle the IMX708's (Camera Module 3) on-sensor HDR
+mode on around their own dedicated `FrameSource`, mirroring `rpicam-still`/
+`rpicam-vid --hdr sensor` — never libcamera's own software `HdrMode` control
+(`Off`/`SingleExposure`/`MultiExposure`/`Night`), which fuses multiple
+captured frames in the ISP rather than combining two exposures during the
+sensor's own readout. libcamera has no control for the sensor's own HDR mode
+at all, so — exactly like `rpicam-apps` itself (`core/options.cpp`,
+`set_imx708_subdev_hdr_ctrl`) — `plugins/camera/sensor_hdr.py`'s
+`set_imx708_sensor_hdr()` sets it directly: it scans
+`/sys/class/video4linux/v4l-subdev*` for whichever node's `driver/module`
+symlink resolves to the `imx708` kernel driver, then issues a raw
+`VIDIOC_S_CTRL` ioctl (`V4L2_CID_WIDE_DYNAMIC_RANGE`) against that
+`/dev/v4l-subdevN` directly — a raw `ctypes`/`fcntl` call, not a new
+dependency, since it's one two-field struct.
+
+Enabled by default (`CAMERA_HDR_SENSOR_MODE`, agent settings) but always
+best-effort and silent: on any camera other than a Camera Module 3 (no
+matching `imx708` subdev found, or the ioctl fails for any reason —
+permission, container without `/dev`/`/sys` mapped in, older kernel), it's a
+silent no-op, never an error surfaced to a snapshot/recording caller. HDR is
+switched on immediately before that `FrameSource`'s own `open()` and switched
+back off immediately after its `close()` — for a snapshot, that's the whole
+(brief) idle-capture path; for a recording, that spans `start_recording()`
+through whichever thread's `finally` actually releases the hardware (an
+explicit `stop_recording()`, or the `camera_record_max_duration_seconds`
+safety valve). **Live streaming is never touched**: `capture_snapshot()`'s
+reuse-the-live-session branch (stream already running) skips this entirely,
+and nothing in the streaming `start()`/`stop()`/`_pump_frames` path
+references `sensor_hdr.py` at all — the sensor's HDR register is always left
+in the same read-only-implied "off" state a live stream expects, since this
+module only ever changes it around a snapshot's or a recording's *own*
+dedicated open.
+
 ## Design Decisions
 
 - The browser never connects to the Raspberry Pi, in either phase — it only
@@ -400,13 +438,14 @@ streaming or the rest of the server.
 
 ## Future Considerations
 
-Video segments/recording, motion triggers, AI/vision processing, encryption,
-redaction, and asynchronous processing workers — all deferred past this
-phase. The snapshot design was deliberately kept extensible toward: scheduled
-snapshots, a snapshot taken automatically before/after a watering command,
-broader automation workflows, and AI image analysis over captured snapshots —
-none of these require a redesign, only new callers of the existing
-`camera.snapshot` command and `SnapshotService`.
+Motion triggers, AI/vision processing, encryption, redaction, and
+asynchronous processing workers — all deferred past this phase. The
+snapshot/recording design was deliberately kept extensible toward: scheduled
+captures, a snapshot/recording taken automatically before/after a watering
+command, broader automation workflows, and AI image/video analysis over
+captured media — none of these require a redesign, only new callers of the
+existing `camera.snapshot`/`camera.record.start`/`camera.record.stop`
+commands and the Saved Media domain.
 
 ## Open Questions
 

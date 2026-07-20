@@ -13,6 +13,7 @@ behave.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib.util
 import socket
@@ -28,6 +29,11 @@ from app.config.settings import AgentSettings
 from app.plugins.camera.exceptions import CameraUnavailableError
 from app.plugins.camera.metrics import (
     CAMERA_FRAMES_SENT_TOTAL,
+    CAMERA_RECORD_DURATION_SECONDS,
+    CAMERA_RECORD_FAILURES_TOTAL,
+    CAMERA_RECORD_UPLOAD_DURATION_SECONDS,
+    CAMERA_RECORDING_ACTIVE,
+    CAMERA_RECORDINGS_TOTAL,
     CAMERA_SNAPSHOT_DURATION_SECONDS,
     CAMERA_SNAPSHOT_FAILURES_TOTAL,
     CAMERA_SNAPSHOT_UPLOAD_DURATION_SECONDS,
@@ -39,6 +45,12 @@ from app.plugins.camera.metrics import (
     CAMERA_STREAM_STOP_TOTAL,
 )
 from app.plugins.camera.publisher import FfmpegRtspPublisher, StreamPublisher
+from app.plugins.camera.recorder import FfmpegMp4Recorder, Mp4Recorder
+from app.plugins.camera.recording_uploader import (
+    RecordingUploaderProtocol,
+    build_s3_recording_uploader,
+)
+from app.plugins.camera.sensor_hdr import set_imx708_sensor_hdr
 from app.plugins.camera.snapshot_uploader import (
     SnapshotUploaderProtocol,
     build_s3_snapshot_uploader,
@@ -46,7 +58,22 @@ from app.plugins.camera.snapshot_uploader import (
 from app.plugins.camera.sources import FrameSource, OpenCvFrameSource, Picamera2FrameSource
 
 _JOIN_TIMEOUT_SECONDS = 5.0
+_RECORDING_JOIN_TIMEOUT_SECONDS = 600.0
 _MEDIAMTX_REACHABLE_TIMEOUT_SECONDS = 0.3
+
+
+def _sha256_of_file(path: Path, *, chunk_size: int = 1 << 20) -> str:
+    """Stream-hash a file in fixed-size chunks.
+
+    Unlike ``capture_snapshot``'s whole-bytes-in-memory JPEG hashing, a
+    finalized recording can be gigabytes — never read it fully into memory
+    just to hash it.
+    """
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 class CameraService:
@@ -60,6 +87,9 @@ class CameraService:
         publisher_factory: Callable[[], StreamPublisher] | None = None,
         snapshot_frame_source_factory: Callable[[], FrameSource] | None = None,
         uploader: SnapshotUploaderProtocol | None = None,
+        recording_frame_source_factory: Callable[[], FrameSource] | None = None,
+        recorder_factory: Callable[[], Mp4Recorder] | None = None,
+        recording_uploader: RecordingUploaderProtocol | None = None,
     ) -> None:
         self._settings = settings
         self._frame_source_factory = frame_source_factory or self._default_frame_source
@@ -68,6 +98,15 @@ class CameraService:
             snapshot_frame_source_factory or self._default_snapshot_frame_source
         )
         self._uploader = uploader if uploader is not None else build_s3_snapshot_uploader(settings)
+        self._recording_frame_source_factory = (
+            recording_frame_source_factory or self._default_recording_frame_source
+        )
+        self._recorder_factory = recorder_factory or self._default_recorder
+        self._recording_uploader = (
+            recording_uploader
+            if recording_uploader is not None
+            else build_s3_recording_uploader(settings)
+        )
         self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self._stop_event = threading.Event()
@@ -76,6 +115,14 @@ class CameraService:
         self._started_at: datetime | None = None
         self._frames_sent = 0
         self._last_error: str | None = None
+        self._recording_thread: threading.Thread | None = None
+        self._recording_stop_event = threading.Event()
+        self._recording_frame_source: FrameSource | None = None
+        self._recorder: Mp4Recorder | None = None
+        self._recording_started_at: datetime | None = None
+        self._recording_filename: str | None = None
+        self._recording_path: Path | None = None
+        self._recording_first_frame: bytes | None = None
 
     def _default_frame_source(self) -> FrameSource:
         settings = self._settings
@@ -87,7 +134,15 @@ class CameraService:
             width=settings.camera_snapshot_width, height=settings.camera_snapshot_height
         )
 
-    def _build_frame_source(self, *, width: int, height: int) -> FrameSource:
+    def _default_recording_frame_source(self) -> FrameSource:
+        settings = self._settings
+        return self._build_frame_source(
+            width=settings.camera_record_width,
+            height=settings.camera_record_height,
+            fps=settings.camera_record_fps,
+        )
+
+    def _build_frame_source(self, *, width: int, height: int, fps: int | None = None) -> FrameSource:
         # A CSI camera module (e.g. Camera Module 3) is only reachable through
         # libcamera/picamera2 on current Raspberry Pi hardware — there is no
         # V4L2 compatibility shim for the Pi 5's SoC, so OpenCV can never open
@@ -95,17 +150,21 @@ class CameraService:
         # fall back to OpenCV for a plain USB/UVC webcam, which V4L2 handles
         # natively.
         settings = self._settings
+        resolved_fps = fps if fps is not None else settings.camera_fps
         if importlib.util.find_spec("picamera2") is not None:
-            return Picamera2FrameSource(width=width, height=height, fps=settings.camera_fps)
+            return Picamera2FrameSource(width=width, height=height, fps=resolved_fps)
         return OpenCvFrameSource(
             device_index=settings.camera_device_index,
             width=width,
             height=height,
-            fps=settings.camera_fps,
+            fps=resolved_fps,
         )
 
     def _default_publisher(self) -> StreamPublisher:
         return FfmpegRtspPublisher()
+
+    def _default_recorder(self) -> Mp4Recorder:
+        return FfmpegMp4Recorder()
 
     @property
     def last_error(self) -> str | None:
@@ -116,6 +175,16 @@ class CameraService:
     def is_streaming(self) -> bool:
         """Whether the frame-pump thread is currently alive."""
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def is_recording(self) -> bool:
+        """Whether the recording pump thread is currently alive.
+
+        Can be ``False`` while a finalized-but-not-yet-uploaded recording is
+        still pending (see ``camera_record_max_duration_seconds``'s
+        auto-stop) — check ``_recording_path`` for that case, not this.
+        """
+        return self._recording_thread is not None and self._recording_thread.is_alive()
 
     def start(self, *, publish_token: str | None = None) -> dict[str, Any]:
         """Start streaming, or return the current status if already streaming.
@@ -362,11 +431,16 @@ class CameraService:
             frame_source = self._snapshot_frame_source_factory()
             width = self._settings.camera_snapshot_width
             height = self._settings.camera_snapshot_height
+            hdr_enabled = self._settings.camera_hdr_sensor_mode
             try:
+                if hdr_enabled:
+                    set_imx708_sensor_hdr(True)
                 frame_source.open()
                 return frame_source.read(), width, height, False
             finally:
                 frame_source.close()
+                if hdr_enabled:
+                    set_imx708_sensor_hdr(False)
 
     def _encode_snapshot(self, frame_bytes: bytes, width: int, height: int) -> tuple[bytes, bytes]:
         """Encode a raw BGR24 frame as a full-size JPEG plus a resized thumbnail."""
@@ -388,6 +462,250 @@ class CameraService:
             raise CameraUnavailableError("Failed to encode snapshot thumbnail as JPEG")
 
         return original_buffer.tobytes(), thumbnail_buffer.tobytes()
+
+    def start_recording(self) -> dict[str, Any]:
+        """Start local, high-quality MP4 recording, or confirm it's already active.
+
+        Independent of streaming — but the camera hardware (picamera2/libcamera
+        or V4L2) only supports one open capture handle at a time, so this
+        raises ``CameraUnavailableError`` if a live stream is currently
+        active rather than trying to share its open ``FrameSource``. Never
+        touches MediaMTX. Only one recording at a time: calling this again
+        while already recording returns the existing session's info, exactly
+        like ``start()``'s toggle semantics.
+        """
+        with self._lock:
+            if self.is_streaming:
+                raise CameraUnavailableError(
+                    "cannot start recording while a live stream is active"
+                )
+            if self.is_recording:
+                return self._recording_status_locked()
+            if self._recording_path is not None:
+                # A previous recording's pump thread already exited (e.g. the
+                # camera_record_max_duration_seconds safety valve) but nobody
+                # has called stop_recording() to finalize/upload it yet —
+                # starting a new one now would strand that file unreferenced.
+                raise CameraUnavailableError(
+                    "a previous recording is still pending upload; call stop_recording first"
+                )
+
+            settings = self._settings
+            frame_source = self._recording_frame_source_factory()
+            recorder = self._recorder_factory()
+            settings.tmp_directory.mkdir(parents=True, exist_ok=True)
+            filename = f"recording-{uuid4()}.mp4"
+            path = settings.tmp_directory / filename
+            hdr_enabled = settings.camera_hdr_sensor_mode
+            try:
+                if hdr_enabled:
+                    set_imx708_sensor_hdr(True)
+                frame_source.open()
+                recorder.start(
+                    output_path=path,
+                    width=settings.camera_record_width,
+                    height=settings.camera_record_height,
+                    fps=settings.camera_record_fps,
+                    bitrate_kbps=settings.camera_record_bitrate_kbps,
+                    preset=settings.camera_record_preset,
+                )
+            except Exception:
+                CAMERA_RECORD_FAILURES_TOTAL.inc()
+                with contextlib.suppress(Exception):
+                    frame_source.close()
+                if hdr_enabled:
+                    set_imx708_sensor_hdr(False)
+                raise
+
+            self._recording_frame_source = frame_source
+            self._recorder = recorder
+            self._recording_filename = filename
+            self._recording_path = path
+            self._recording_first_frame = None
+            self._recording_started_at = datetime.now(UTC)
+            self._recording_stop_event = threading.Event()
+            self._recording_thread = threading.Thread(
+                target=self._pump_recording_frames, daemon=True
+            )
+            self._recording_thread.start()
+            CAMERA_RECORDING_ACTIVE.set(1)
+            return self._recording_status_locked()
+
+    def _recording_status_locked(self) -> dict[str, Any]:
+        """Build the "recording started" result; caller must already hold ``self._lock``."""
+        settings = self._settings
+        return {
+            "status": "recording_started",
+            "filename": self._recording_filename or "",
+            "width": settings.camera_record_width,
+            "height": settings.camera_record_height,
+            "fps": settings.camera_record_fps,
+            "started_at": (
+                self._recording_started_at.isoformat() if self._recording_started_at else None
+            ),
+        }
+
+    def _pump_recording_frames(self) -> None:
+        """Read-and-write loop for recording; runs entirely on its own thread.
+
+        Mirrors ``_pump_frames``'s "release hardware from whatever thread
+        ends the loop" discipline — however this loop ends (an explicit
+        ``stop_recording()`` signal, the natural end of frames, an exception,
+        or the ``camera_record_max_duration_seconds`` safety valve), the
+        camera/recorder must be released here. Unlike ``_pump_frames``,
+        finalizing here only releases hardware — the sha256/upload happens in
+        ``stop_recording()``, since the local MP4 file itself remains valid
+        and uploadable even if this loop ends before anyone calls it.
+
+        Also stashes the very first frame in ``self._recording_first_frame``
+        — ``stop_recording()`` encodes it as a thumbnail after this thread
+        has already exited (via ``thread.join()``), so no lock is needed
+        here to write it safely.
+        """
+        frame_source = self._recording_frame_source
+        recorder = self._recorder
+        started_at = self._recording_started_at
+        assert frame_source is not None
+        assert recorder is not None
+        assert started_at is not None
+        max_duration = self._settings.camera_record_max_duration_seconds
+        try:
+            while not self._recording_stop_event.is_set():
+                if (datetime.now(UTC) - started_at).total_seconds() >= max_duration:
+                    break
+                frame = frame_source.read()
+                if frame is None:
+                    break
+                if self._recording_first_frame is None:
+                    self._recording_first_frame = frame
+                recorder.write(frame)
+        except Exception:  # pragma: no cover - defensive; surfaced via a failed stop_recording
+            CAMERA_RECORD_FAILURES_TOTAL.inc()
+        finally:
+            with self._lock:
+                recorder.stop()
+                frame_source.close()
+                if self._settings.camera_hdr_sensor_mode:
+                    set_imx708_sensor_hdr(False)
+                self._recording_thread = None
+                self._recording_frame_source = None
+                self._recorder = None
+                CAMERA_RECORDING_ACTIVE.set(0)
+
+    def stop_recording(self) -> dict[str, Any]:
+        """Stop recording, finalize the MP4, and upload it directly to S3.
+
+        If the pump thread is still active, signals it to stop and joins it
+        — joining only releases the hardware (see ``_pump_recording_frames``'s
+        finally); the upload always happens here, after the local file is
+        fully finalized, never in the pump thread itself. Also succeeds if
+        the pump thread already exited on its own (the max-duration safety
+        valve): the local file is still on disk, waiting to be uploaded.
+        Raises ``CameraUnavailableError`` if nothing is recording and no
+        recording is pending upload either.
+        """
+        with self._lock:
+            if self._recording_started_at is None:
+                raise CameraUnavailableError("no recording in progress")
+            thread = self._recording_thread
+            if thread is not None:
+                self._recording_stop_event.set()
+            started_at = self._recording_started_at
+            path = self._recording_path
+            filename = self._recording_filename
+
+        assert path is not None
+        assert filename is not None
+        if thread is not None:
+            # Released outside the lock: _pump_recording_frames' own finally
+            # block needs it to release the camera/recorder once this join()
+            # lets it proceed.
+            thread.join(timeout=_RECORDING_JOIN_TIMEOUT_SECONDS)
+
+        with self._lock:
+            duration = (datetime.now(UTC) - started_at).total_seconds()
+            recorded_at = datetime.now(UTC)
+            first_frame = self._recording_first_frame
+            try:
+                if self._recording_uploader is None:
+                    raise CameraUnavailableError(
+                        "AWS S3 is not configured for recording uploads "
+                        "(AWS_S3_BUCKET/AWS_ACCESS_KEY_ID are unset)"
+                    )
+                sha256_hex = _sha256_of_file(path)
+                thumbnail_bytes = self._try_encode_recording_thumbnail(first_frame)
+                upload_started = time.monotonic()
+                upload_result = self._recording_uploader.upload(
+                    file_path=path,
+                    device_name=self._settings.device_name,
+                    recorded_at=recorded_at,
+                    thumbnail_bytes=thumbnail_bytes,
+                )
+                upload_duration = time.monotonic() - upload_started
+            except Exception as error:
+                CAMERA_RECORD_FAILURES_TOTAL.inc()
+                path.unlink(missing_ok=True)
+                self._clear_recording_state_locked()
+                if isinstance(error, CameraUnavailableError):
+                    raise
+                raise CameraUnavailableError(
+                    f"Failed to upload recording to S3: {error}"
+                ) from error
+
+            # Delete the temp file only after a successful upload — unlike
+            # capture_snapshot, a failed upload above already deletes it (in
+            # the except clause) since there's nothing durable to retry from.
+            path.unlink(missing_ok=True)
+            self._clear_recording_state_locked()
+            CAMERA_RECORD_UPLOAD_DURATION_SECONDS.observe(upload_duration)
+            CAMERA_RECORDINGS_TOTAL.inc()
+            CAMERA_RECORD_DURATION_SECONDS.observe(duration)
+            return {
+                "bucket": upload_result.bucket,
+                "filename": upload_result.filename,
+                "object_key": upload_result.object_key,
+                "thumbnail_object_key": upload_result.thumbnail_object_key,
+                "etag": upload_result.etag,
+                "sha256": sha256_hex,
+                "width": self._settings.camera_record_width,
+                "height": self._settings.camera_record_height,
+                "duration": round(duration),
+                "fps": self._settings.camera_record_fps,
+                "bitrate": self._settings.camera_record_bitrate_kbps,
+                "file_size": upload_result.size,
+                "recorded_at": recorded_at.isoformat(),
+                "upload_duration": upload_duration,
+            }
+
+    def _clear_recording_state_locked(self) -> None:
+        """Reset recording identity fields; caller must already hold ``self._lock``."""
+        self._recording_started_at = None
+        self._recording_filename = None
+        self._recording_path = None
+        self._recording_first_frame = None
+
+    def _try_encode_recording_thumbnail(self, frame_bytes: bytes | None) -> bytes | None:
+        """Best-effort: a thumbnail is a nice-to-have, never worth failing the whole upload over."""
+        if frame_bytes is None:
+            return None
+        try:
+            import cv2
+            import numpy as np
+
+            settings = self._settings
+            width, height = settings.camera_record_width, settings.camera_record_height
+            frame = np.frombuffer(frame_bytes, dtype=np.uint8).reshape((height, width, 3))
+            thumbnail_width = settings.camera_snapshot_thumbnail_width
+            thumbnail_height = max(1, round(height * (thumbnail_width / width)))
+            thumbnail_frame = cv2.resize(
+                frame, (thumbnail_width, thumbnail_height), interpolation=cv2.INTER_AREA
+            )
+            ok, buffer = cv2.imencode(".jpg", thumbnail_frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if not ok:
+                return None
+            return buffer.tobytes()
+        except Exception:  # pragma: no cover - defensive; a missing thumbnail is never fatal
+            return None
 
     def check_camera_detected(self) -> bool:
         """Best-effort check: streaming implies detected; idle falls back to a device-path probe."""

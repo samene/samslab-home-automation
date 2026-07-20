@@ -4,23 +4,28 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { describe, expect, it, vi } from "vitest";
 import * as snapshotsApi from "@/lib/api/snapshots";
-import type { SnapshotDTO, SnapshotPageDTO } from "@/types/api";
+import type { SavedMediaDTO, SavedMediaPageDTO } from "@/types/api";
 import { useDeleteSnapshot, useSnapshot, useSnapshots } from "./useSnapshots";
 
 vi.mock("@/lib/api/snapshots");
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
-const SNAPSHOT: SnapshotDTO = {
+const SNAPSHOT: SavedMediaDTO = {
   id: "snap-1",
+  media_type: "IMAGE",
   device_id: "device-1",
   command_id: "cmd-1",
   filename: "snap-1.jpg",
   thumbnail_url: "https://s3.example.com/thumb.jpg",
   image_url: "https://s3.example.com/full.jpg",
+  video_url: "",
   etag: "etag-1",
   sha256: "abc123",
   width: 1920,
   height: 1080,
+  duration: null,
+  fps: null,
+  bitrate: null,
   size: 204800,
   captured_at: "2026-01-15T10:00:00Z",
   created_at: "2026-01-15T10:00:01Z",
@@ -36,7 +41,7 @@ function wrapper({ children }: { children: ReactNode }) {
 
 describe("useSnapshots", () => {
   it("fetches the snapshot list", async () => {
-    const page: SnapshotPageDTO = { items: [SNAPSHOT], total: 1, offset: 0, limit: 20 };
+    const page: SavedMediaPageDTO = { items: [SNAPSHOT], total: 1, offset: 0, limit: 20 };
     vi.mocked(snapshotsApi.listSnapshots).mockResolvedValue(page);
 
     const { result } = renderHook(() => useSnapshots(), { wrapper });

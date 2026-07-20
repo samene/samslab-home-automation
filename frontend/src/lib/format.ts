@@ -56,10 +56,61 @@ export function formatFileSize(bytes: number): string {
   return `${(kilobytes / 1024).toFixed(1)} MB`;
 }
 
+/** A recorded video's duration in whole seconds, formatted as mm:ss. */
+export function formatVideoDuration(seconds: number | null | undefined): string {
+  if (seconds == null) return "—";
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.floor(seconds % 60);
+  return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
+}
+
 const COMMAND_LABELS: Record<string, string> = {
   "camera.snapshot": "Snapshot Captured",
+  "camera.record.start": "Recording Started",
+  "camera.record.stop": "Recording Finished",
 };
 
 export function friendlyCommandLabel(commandType: string): string {
   return COMMAND_LABELS[commandType] ?? commandType;
+}
+
+export interface DayGroup<T> {
+  label: string;
+  items: T[];
+}
+
+/** Groups items by local calendar day, newest day first, labeling Today/Yesterday specially. */
+export function groupByDay<T>(items: T[], getTimestamp: (item: T) => string): DayGroup<T>[] {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const groups = new Map<string, DayGroup<T>>();
+  for (const item of items) {
+    const date = new Date(getTimestamp(item));
+    const dayStart = new Date(date);
+    dayStart.setHours(0, 0, 0, 0);
+    const key = dayStart.toISOString();
+
+    let label: string;
+    if (dayStart.getTime() === today.getTime()) {
+      label = "Today";
+    } else if (dayStart.getTime() === yesterday.getTime()) {
+      label = "Yesterday";
+    } else {
+      label = dayStart.toLocaleDateString(undefined, { dateStyle: "long" });
+    }
+
+    const existing = groups.get(key);
+    if (existing) {
+      existing.items.push(item);
+    } else {
+      groups.set(key, { label, items: [item] });
+    }
+  }
+
+  return Array.from(groups.entries())
+    .sort(([a], [b]) => b.localeCompare(a))
+    .map(([, group]) => group);
 }

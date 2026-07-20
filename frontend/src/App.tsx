@@ -10,8 +10,8 @@ import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
 import { ScheduleEditorPage } from "@/pages/ScheduleEditorPage";
 import { SchedulesPage } from "@/pages/SchedulesPage";
+import { SavedMediaPage } from "@/pages/SavedMediaPage";
 import { SettingsPage } from "@/pages/SettingsPage";
-import { SnapshotsPage } from "@/pages/SnapshotsPage";
 import { WorkflowEditorPage } from "@/pages/WorkflowEditorPage";
 import { WorkflowsPage } from "@/pages/WorkflowsPage";
 
@@ -52,11 +52,11 @@ export function App() {
                 }
               />
               <Route
-                path="/snapshots"
+                path="/saved-media"
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <SnapshotsPage />
+                      <SavedMediaPage />
                     </AppShell>
                   </ProtectedRoute>
                 }

@@ -109,18 +109,21 @@ class CameraDeviceNotFoundError(NotFoundError):
 
 
 class CameraCommandFailedError(ConflictError):
-    """Raised when a ``camera.stream.*`` command does not complete successfully."""
+    """Raised when a ``camera.stream.*``/``camera.snapshot``/``camera.record.*`` command
+    does not complete successfully (e.g. the agent rejects ``camera.record.start`` while
+    a live stream is already active)."""
 
 
 class CameraCommandTimedOutError(ConflictError):
-    """Raised when a ``camera.stream.*`` command does not reach a terminal state in time."""
+    """Raised when a ``camera.stream.*``/``camera.snapshot``/``camera.record.*`` command
+    does not reach a terminal state in time."""
 
 
-# --- Snapshot use cases --------------------------------------------------------
+# --- Saved Media use cases --------------------------------------------------------
 
 
-class SnapshotNotFoundError(NotFoundError):
-    """Raised when a referenced snapshot does not exist."""
+class SavedMediaNotFoundError(NotFoundError):
+    """Raised when a referenced saved media row (image or video) does not exist."""
 
 
 # --- Workflow use cases ---------------------------------------------------------
