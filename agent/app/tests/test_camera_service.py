@@ -104,7 +104,7 @@ def test_start_opens_the_camera_and_publisher_and_reports_status() -> None:
     assert publisher.started is True
     assert result["running"] is True
     assert result["stream_name"] == "camera"
-    assert result["playback_url"] == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert result["playback_url"] == "http://mediamtx.local:8889/camera/whep"
     assert result["resolution"] == "1280x720"
     assert result["fps"] == 30
     assert result["started_at"] is not None
@@ -222,7 +222,7 @@ def test_status_reports_not_running_before_any_start() -> None:
     assert status["running"] is False
     assert status["started_at"] is None
     assert status["uptime_seconds"] == 0.0
-    assert status["playback_url"] == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert status["playback_url"] == "http://mediamtx.local:8889/camera/whep"
 
 
 def test_playback_url_omits_the_port_when_unset() -> None:
@@ -236,7 +236,7 @@ def test_playback_url_omits_the_port_when_unset() -> None:
     )
     service = CameraService(settings)
 
-    assert service.playback_url() == "https://media.samslab.site/camera/index.m3u8"
+    assert service.playback_url() == "https://media.samslab.site/camera/whep"
 
 
 def test_playback_url_uses_https_scheme_with_an_explicit_port() -> None:
@@ -248,7 +248,7 @@ def test_playback_url_uses_https_scheme_with_an_explicit_port() -> None:
     )
     service = CameraService(settings)
 
-    assert service.playback_url() == "https://media.samslab.site:8443/camera/index.m3u8"
+    assert service.playback_url() == "https://media.samslab.site:8443/camera/whep"
 
 
 def test_status_reports_running_while_streaming() -> None:

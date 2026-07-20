@@ -127,8 +127,9 @@ class Settings(BaseSettings):
     # support for user:pass@host in 2022), and MediaMTX's HLS/WebRTC reads
     # accept neither query-parameter credentials nor a custom Authorization
     # header from a plain <iframe>/<video> load — so the frontend instead
-    # drives playback through hls.js, which *can* set a header per-request.
-    # This key is a distinct RSA keypair from the app's own HS256 JWT_SECRET;
+    # drives playback via WebRTC (WHEP), whose SDP-offer exchange is a normal
+    # fetch() POST that *can* set a header per-request. This key is a
+    # distinct RSA keypair from the app's own HS256 JWT_SECRET;
     # MEDIAMTX_JWT_PRIVATE_KEY is the base64 encoding of a PKCS8 PEM private
     # key (base64 to survive .env's bash-sourcing unscathed — see lib.sh).
     # None disables MediaMTX JWT auth entirely (playback_token stays null).

@@ -18,11 +18,13 @@ class CameraStatusDTO(BaseModel):
 
     running: bool
     stream_name: str
+    # MediaMTX's WHEP (WebRTC-HTTP Egress Protocol) endpoint for this stream
+    # — the frontend POSTs an SDP offer here directly, no proxy needed.
     playback_url: str
     # A short-lived MediaMTX read JWT (see app/core/mediamtx_jwt.py), minted
     # fresh on every response — never persisted, always attached by the
-    # frontend as an Authorization: Bearer header via hls.js. None when
-    # MediaMTX JWT auth isn't configured server-side.
+    # frontend as an Authorization: Bearer header on the WHEP POST. None
+    # when MediaMTX JWT auth isn't configured server-side.
     playback_token: str | None = None
     resolution: str | None = None
     fps: int | None = None

@@ -102,7 +102,7 @@ async def test_start_handler_returns_stream_info() -> None:
     result = await handler.execute(context, {})
 
     assert result["stream_name"] == "camera"
-    assert result["playback_url"] == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert result["playback_url"] == "http://mediamtx.local:8889/camera/whep"
     assert result["started_at"] is not None
 
     camera_service.stop()
@@ -151,7 +151,7 @@ async def test_status_handler_reports_running_state() -> None:
     await CameraStreamStartHandler().execute(context, {})
     running_status = await CameraStatusHandler().execute(context, {})
     assert running_status["running"] is True
-    assert running_status["playback_url"] == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert running_status["playback_url"] == "http://mediamtx.local:8889/camera/whep"
 
     camera_service.stop()
 

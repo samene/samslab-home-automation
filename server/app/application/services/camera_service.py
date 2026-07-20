@@ -15,14 +15,15 @@ actually commit before the wait begins — an open transaction would hide the
 new command from everyone else and deadlock the wait forever.
 
 The browser never talks to the Raspberry Pi. It only ever talks to this
-service's REST controller, which returns a ``playback_url`` (the MediaMTX HLS
-manifest) built from server-side MediaMTX configuration, plus a short-lived
-``playback_token`` (see ``app/core/mediamtx_jwt.py``) the frontend attaches
-as an Authorization header on every manifest/segment request. When MediaMTX
-JWT auth is configured, ``start_stream`` also mints a longer-lived *publish*
-JWT and hands it to the agent inside the ``camera.stream.start`` command's
-payload — MediaMTX only runs one ``authMethod`` at a time, so the agent's
-RTSP publish connection needs a JWT too once reads require one.
+service's REST controller, which returns a ``playback_url`` (MediaMTX's WHEP
+endpoint for WebRTC playback) built from server-side MediaMTX configuration,
+plus a short-lived ``playback_token`` (see ``app/core/mediamtx_jwt.py``) the
+frontend attaches as an Authorization header on the WHEP SDP-offer POST.
+When MediaMTX JWT auth is configured, ``start_stream`` also mints a
+longer-lived *publish* JWT and hands it to the agent inside the
+``camera.stream.start`` command's payload — MediaMTX only runs one
+``authMethod`` at a time, so the agent's RTSP publish connection needs a JWT
+too once reads require one.
 """
 
 from __future__ import annotations
@@ -378,24 +379,24 @@ class CameraApplicationService:
             await asyncio.sleep(self._command_poll_interval_seconds)
 
     def _playback_url(self, stream_name: str) -> str:
-        """Build the browser-facing MediaMTX HLS manifest URL for a stream name.
+        """Build the browser-facing MediaMTX WHEP endpoint URL for a stream name.
 
-        Points at the raw ``index.m3u8`` manifest, not MediaMTX's embedded
-        HTML player page — the frontend drives playback itself through
-        hls.js so it can attach the Authorization header from
-        ``playback_token`` to every manifest/segment request (a plain
-        ``<iframe>``/``<video src>`` load has no way to carry that header,
-        and embedding ``user:pass@host`` credentials in the URL itself no
-        longer works in Chrome). No port is appended when
-        ``mediamtx_playback_port`` is unset — for a reverse proxy/load
-        balancer that terminates the scheme's implicit default port (443 for
-        https, 80 for http) and forwards to MediaMTX's real port internally,
-        the browser never needs to see that port.
+        WHEP (WebRTC-HTTP Egress Protocol): the frontend POSTs an SDP offer
+        here directly (Authorization: Bearer ``playback_token``,
+        Content-Type: application/sdp) and gets an SDP answer back — a
+        normal ``fetch()`` call, not a passive resource load, so the browser
+        can attach that header itself with no proxy or workaround needed
+        (unlike the HLS approach this replaced, where only a programmatic
+        HLS client could attach a custom header at all). No port is
+        appended when ``mediamtx_playback_port`` is unset — for a reverse
+        proxy/load balancer that terminates the scheme's implicit default
+        port (443 for https, 80 for http) and forwards to MediaMTX's real
+        port internally, the browser never needs to see that port.
         """
         host = self._mediamtx_host
         if self._mediamtx_playback_port is not None:
             host = f"{host}:{self._mediamtx_playback_port}"
-        return f"{self._mediamtx_playback_scheme}://{host}/{stream_name}/index.m3u8"
+        return f"{self._mediamtx_playback_scheme}://{host}/{stream_name}/whep"
 
     def _mint_playback_token(self, stream_name: str) -> str | None:
         """A fresh, short-lived MediaMTX read JWT, or None when JWT auth isn't configured."""

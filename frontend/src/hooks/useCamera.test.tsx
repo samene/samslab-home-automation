@@ -13,7 +13,7 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 const STATUS: CameraStatusDTO = {
   running: true,
   stream_name: "camera",
-  playback_url: "http://mediamtx.local:8889/camera/index.m3u8",
+  playback_url: "http://mediamtx.local:8889/camera/whep",
   playback_token: "the-jwt",
   resolution: "1280x720",
   fps: 30,

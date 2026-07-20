@@ -752,22 +752,21 @@ class CameraService:
         return f"rtsp://{settings.mediamtx_host}:{settings.mediamtx_port}/{settings.stream_name}"
 
     def playback_url(self) -> str:
-        """The browser-facing MediaMTX HLS manifest URL, included in command results for logging.
+        """The browser-facing MediaMTX WHEP endpoint URL, included in command results for logging.
 
         The browser never fetches this URL directly — the server
         independently constructs its own (see
         ``CameraApplicationService._playback_url``), paired with a
         short-lived MediaMTX JWT the frontend attaches as an Authorization
-        header via hls.js, since neither embedding ``user:pass@host``
-        credentials nor a plain ``<iframe>``/``<video src>`` load can carry
-        auth for MediaMTX's HLS reads. This one exists purely so agent-side
-        logs show a real, correctly-shaped URL. No port is appended when
-        ``mediamtx_playback_port`` is unset — for a reverse proxy/load
-        balancer that terminates the scheme's implicit default port (443 for
-        https, 80 for http) and forwards to MediaMTX's real port internally.
+        header on the WHEP SDP-offer POST. This one exists purely so
+        agent-side logs show a real, correctly-shaped URL. No port is
+        appended when ``mediamtx_playback_port`` is unset — for a reverse
+        proxy/load balancer that terminates the scheme's implicit default
+        port (443 for https, 80 for http) and forwards to MediaMTX's real
+        port internally.
         """
         settings = self._settings
         host = settings.mediamtx_host
         if settings.mediamtx_playback_port is not None:
             host = f"{host}:{settings.mediamtx_playback_port}"
-        return f"{settings.mediamtx_playback_scheme}://{host}/{settings.stream_name}/index.m3u8"
+        return f"{settings.mediamtx_playback_scheme}://{host}/{settings.stream_name}/whep"

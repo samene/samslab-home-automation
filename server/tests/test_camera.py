@@ -197,7 +197,7 @@ async def test_start_stream_waits_for_completion_and_builds_playback_url(
     )
     assert status.running is True
     assert status.stream_name == "camera"
-    assert status.playback_url == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert status.playback_url == "http://mediamtx.local:8889/camera/whep"
     assert status.resolution == "1280x720"
     assert status.fps == 30
     assert status.started_at is not None
@@ -268,7 +268,7 @@ async def test_get_status_defaults_to_not_running_when_never_started(
     assert status.running is False
     assert status.uptime_seconds == 0.0
     assert status.stream_name == "camera"
-    assert status.playback_url == "http://mediamtx.local:8889/camera/index.m3u8"
+    assert status.playback_url == "http://mediamtx.local:8889/camera/whep"
 
 
 async def test_playback_url_omits_the_port_when_unset(
@@ -289,7 +289,7 @@ async def test_playback_url_omits_the_port_when_unset(
 
     status = await service.get_status()
 
-    assert status.playback_url == "https://media.samslab.site/camera/index.m3u8"
+    assert status.playback_url == "https://media.samslab.site/camera/whep"
 
 
 async def test_playback_url_uses_https_scheme_with_an_explicit_port(
@@ -308,7 +308,7 @@ async def test_playback_url_uses_https_scheme_with_an_explicit_port(
 
     status = await service.get_status()
 
-    assert status.playback_url == "https://media.samslab.site:8443/camera/index.m3u8"
+    assert status.playback_url == "https://media.samslab.site:8443/camera/whep"
 
 
 async def test_playback_token_is_none_when_no_signer_is_configured(
@@ -756,7 +756,7 @@ async def test_api_start_stop_and_status_round_trip(database: Database, device: 
         assert start_response.status_code == 200
         body = start_response.json()
         assert body["running"] is True
-        assert body["playback_url"] == "http://mediamtx.local:8889/camera/index.m3u8"
+        assert body["playback_url"] == "http://mediamtx.local:8889/camera/whep"
         assert body["playback_token"] is None
         assert body["stream_name"] == "camera"
         assert body["resolution"] == "1280x720"
@@ -821,7 +821,8 @@ async def test_api_includes_a_playback_token_and_serves_its_matching_jwks(
                 database, device.id, "camera.stream.start", result=START_RESULT
             ),
         )
-        token = start_response.json()["playback_token"]
+        body = start_response.json()
+        token = body["playback_token"]
         assert token is not None
 
         jwks_response = await client.get("/.well-known/mediamtx-jwks.json")

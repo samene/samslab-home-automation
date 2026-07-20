@@ -182,6 +182,9 @@ export interface DispatcherStatisticsDTO {
 export interface CameraStatusDTO {
   running: boolean;
   stream_name: string;
+  // The MediaMTX WHEP endpoint for this stream — POST an SDP offer here
+  // (Authorization: Bearer playback_token, Content-Type: application/sdp)
+  // to negotiate WebRTC playback. See CameraPanel.tsx and docs/agent/CAMERA.md.
   playback_url: string;
   playback_token: string | null;
   resolution: string | null;

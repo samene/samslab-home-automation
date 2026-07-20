@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useCameraStatus,
   useStartCameraStream,
@@ -22,13 +22,6 @@ vi.mock("@/hooks/useCamera");
 vi.mock("@/hooks/useWorkflows");
 vi.mock("@/hooks/useSchedules");
 vi.mock("@/hooks/useWeather");
-vi.mock("hls.js", () => ({
-  default: class {
-    static isSupported() {
-      return false;
-    }
-  },
-}));
 
 const mockedUsePrimaryDevice = vi.mocked(usePrimaryDevice);
 const mockedUseCommands = vi.mocked(useCommands);
@@ -42,6 +35,40 @@ const mockedUseWorkflows = vi.mocked(useWorkflows);
 const mockedUseRunWorkflow = vi.mocked(useRunWorkflow);
 const mockedUseSchedules = vi.mocked(useSchedules);
 const mockedUseWeather = vi.mocked(useWeather);
+
+// This page doesn't test WebRTC playback internals (see CameraPanel.test.tsx
+// for that) — it just needs the live-camera state to render without
+// CameraPanel's WHEP hook immediately giving up (jsdom has no
+// RTCPeerConnection at all), so a minimal, always-succeeds stub is enough.
+beforeEach(() => {
+  vi.stubGlobal(
+    "RTCPeerConnection",
+    class {
+      iceGatheringState = "complete";
+      connectionState = "connected";
+      ontrack: ((event: { streams: MediaStream[] }) => void) | null = null;
+      onconnectionstatechange: (() => void) | null = null;
+      localDescription = { type: "offer", sdp: "mock-sdp" };
+      addEventListener() {}
+      removeEventListener() {}
+      addTransceiver() {}
+      close() {}
+      async createOffer() {
+        return { type: "offer", sdp: "mock-sdp" };
+      }
+      async setLocalDescription() {}
+      async setRemoteDescription() {}
+    },
+  );
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => new Response("mock-answer-sdp", { status: 200 })),
+  );
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function mockCommonHooks() {
   mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
@@ -153,7 +180,7 @@ describe("DashboardPage", () => {
     const startMutateAsync = vi.fn().mockResolvedValue({
       running: true,
       stream_name: "camera",
-      playback_url: "http://mediamtx.local:8889/camera/index.m3u8",
+      playback_url: "http://mediamtx.local:8889/camera/whep",
       playback_token: "the-jwt",
       resolution: "1280x720",
       fps: 30,

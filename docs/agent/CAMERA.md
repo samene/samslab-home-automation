@@ -8,7 +8,8 @@ Describe the camera capture, live-streaming, and future media-handling boundary.
 
 Live streaming — starting, stopping, and reporting the status of one RTSP
 stream published to an already-deployed MediaMTX instance, viewed by the
-browser through MediaMTX's own playback page — is implemented. High-resolution
+browser over WebRTC (the frontend drives playback itself, never MediaMTX's
+own embedded player page) — is implemented. High-resolution
 still-image capture ("snapshot"), independent of streaming and uploaded
 directly to Amazon S3, is also implemented (see "Snapshot capture" below), as
 is local, high-quality video recording with direct-to-S3 upload (independent
@@ -22,9 +23,10 @@ explicitly **not** part of this phase; see Future Considerations.
 
 The browser never talks to the Raspberry Pi. The full path is: browser →
 cloud server REST API → `camera.stream.start`/`camera.stream.stop` commands →
-agent → MediaMTX (RTSP publish) → browser (hls.js fetches the HLS manifest
-the server returned, attaching the server-minted `playback_token` as a Bearer
-header on every request — see "Browser playback authentication" below).
+agent → MediaMTX (RTSP publish) → browser (WebRTC via the WHEP protocol,
+POSTing an SDP offer to the `playback_url` the server returned and attaching
+the server-minted `playback_token` as a Bearer header on that POST — see
+"Browser playback authentication" below).
 
 **Server side** (`server/app/application/services/camera_service.py`,
 `server/app/api/camera.py`) has no Camera domain and no camera-specific
@@ -125,13 +127,12 @@ meaningfully better quality at the same bitrate), plus
 `MEDIAMTX_PLAYBACK_SCHEME`/`MEDIAMTX_PLAYBACK_PORT` (not in the original field
 list, but required so the agent's own `camera.stream.start` result can
 include a `playback_url`, since MediaMTX serves browser playback on a
-different scheme/port than the one the agent publishes RTSP to — e.g. HLS
-rather than WebRTC when only TCP reaches the server, or a reverse proxy in
-front of MediaMTX terminating TLS). `MEDIAMTX_PLAYBACK_PORT` may be left
-unset entirely, omitting the port from the constructed URL — for when a
-proxy/load balancer terminates the scheme's implicit default port (443/80)
-and forwards to MediaMTX's real port internally, so the browser never needs
-to see it. `playback_url` points at the raw `index.m3u8` manifest (not
+different scheme/port than the one the agent publishes RTSP to — e.g. a
+reverse proxy in front of MediaMTX terminating TLS). `MEDIAMTX_PLAYBACK_PORT`
+may be left unset entirely, omitting the port from the constructed URL — for
+when a proxy/load balancer terminates the scheme's implicit default port
+(443/80) and forwards to MediaMTX's real port internally, so the browser
+never needs to see it. `playback_url` points at MediaMTX's WHEP endpoint (not
 MediaMTX's embedded HTML player page) — see "Browser playback authentication"
 below for why. Server settings `MEDIAMTX_HOST`, `MEDIAMTX_PLAYBACK_SCHEME`,
 `MEDIAMTX_PLAYBACK_PORT`, `CAMERA_STREAM_NAME`, `CAMERA_COMMAND_TIMEOUT_SECONDS`,
@@ -159,8 +160,7 @@ never `PutObject`).
 
 ### Browser playback authentication
 
-Two approaches were tried and abandoned before landing on MediaMTX's
-JWT-based read auth:
+Two approaches were tried and abandoned before landing on the current one:
 
 1. **HTTP Basic Auth via `user:pass@host` in the URL.** Chrome (and other
    browsers) stopped honoring userinfo embedded in a URL in 2022 — the
@@ -168,48 +168,70 @@ JWT-based read auth:
    unauthenticated, so MediaMTX falls back to its native Basic Auth dialog
    (the exact "why is the browser asking for a password" symptom this was
    built to avoid).
-2. **A plain `<iframe>`/`<video src>` load with credentials passed some other
-   way.** MediaMTX's HLS and WebRTC reads accept neither query-parameter
-   credentials (`?user=`/`?pass=`/`?token=`, which the RTSP/RTMP protocols
-   *do* support) nor a custom `Authorization` header from a passive resource
-   load — there is no URL shape that carries auth for these two protocols.
+2. **HLS via hls.js, with the JWT attached as an Authorization header.**
+   This actually worked, for a while — but native Safari HLS playback
+   (used whenever hls.js's `Hls.isSupported()` is false, which turned out to
+   be every Safari tested, desktop and iOS) has no way to attach a custom
+   header to a passive `<video src>` load at all, requiring an entire
+   same-origin backend proxy (now deleted) just to work around it. Even with
+   that in place, MediaMTX turned out to 302-redirect every HLS read through
+   a cookie-based session-affinity mechanism, needing further workarounds on
+   both ends. HLS's live segment-refresh cadence also produced a
+   perceptible blank flicker every few seconds. All of this motivated the
+   move to WebRTC below.
 
-The only mechanism that actually works for a browser is MediaMTX's
-[JWT-based auth](https://mediamtx.org/docs/features/authentication) plus its
-documented "Embed in a website" pattern
-(https://mediamtx.org/docs/read/web-browsers#embed-in-a-website): drive
-playback with a real HLS client (hls.js) that can attach an `Authorization:
-Bearer <token>` header to every manifest/segment request. Accordingly:
+The current mechanism is **WebRTC via the WHEP protocol**
+(https://mediamtx.org/docs/read/webrtc), authenticated with MediaMTX's
+[JWT-based auth](https://mediamtx.org/docs/features/authentication) exactly
+as HLS was — but WHEP's session setup is a normal `fetch()` POST (an SDP
+offer in, an SDP answer back), not a passive resource load, so the browser
+can attach the `Authorization: Bearer <token>` header itself directly. No
+proxy, no cookie dance, no native-vs-programmatic-client split: `RTCPeerConnection`/
+`<video>.srcObject` are uniformly supported across Chrome, Firefox, Edge,
+Safari desktop, and iOS Safari.
 
 - **Server** (`app/core/mediamtx_jwt.py`): mints a short-lived RS256 JWT per
   `camera/start`/`camera/status` call, carrying the
   `mediamtx_permissions: [{"action": "read", "path": stream_name}]` claim
   MediaMTX's `authJWTClaimKey` expects, and returns it as `playback_token`
-  alongside `playback_url`. This is a *separate* RSA keypair from the app's
-  own HS256 `JWT_SECRET` — a JWKS endpoint can only ever publish a public
-  key, so signing with the app's shared secret would mean publishing it.
-  `GET /.well-known/mediamtx-jwks.json` (no auth — JWKS endpoints are
-  conventionally public) serves the public half; point mediamtx.yml's
-  `authJWTJWKS` at `https://<server>/api/.well-known/mediamtx-jwks.json` in
-  the hybrid deployment — the `/api` prefix matters, since Caddy only
-  reverse-proxies `/api/*` to this backend (`deployment/caddy/Caddyfile`),
-  stripping the prefix before forwarding; the bare path 404s through the
-  public domain even though the backend's own route carries no `/api`.
-  Generate the keypair with
-  `python scripts/generate_mediamtx_jwt_key.py` and set the printed
-  `MEDIAMTX_JWT_PRIVATE_KEY` (base64-encoded PKCS8 PEM, to survive `.env`'s
-  bash-sourcing) plus, optionally, `MEDIAMTX_JWT_ISSUER`/`MEDIAMTX_JWT_AUDIENCE`
-  to match mediamtx.yml's `authJWTIssuer`/`authJWTAudience` if those are set
-  there. `MEDIAMTX_JWT_TTL_SECONDS` (default 60) is deliberately short — a
-  fresh token is minted on every status poll, never persisted. Leaving
+  alongside `playback_url` (MediaMTX's `/<stream>/whep` endpoint). This is a
+  *separate* RSA keypair from the app's own HS256 `JWT_SECRET` — a JWKS
+  endpoint can only ever publish a public key, so signing with the app's
+  shared secret would mean publishing it. `GET /.well-known/mediamtx-jwks.json`
+  (no auth — JWKS endpoints are conventionally public) serves the public
+  half; point mediamtx.yml's `authJWTJWKS` at
+  `https://<server>/api/.well-known/mediamtx-jwks.json` in the hybrid
+  deployment — the `/api` prefix matters, since Caddy only reverse-proxies
+  `/api/*` to this backend (`deployment/caddy/Caddyfile`), stripping the
+  prefix before forwarding; the bare path 404s through the public domain
+  even though the backend's own route carries no `/api`. Generate the
+  keypair with `python scripts/generate_mediamtx_jwt_key.py` and set the
+  printed `MEDIAMTX_JWT_PRIVATE_KEY` (base64-encoded PKCS8 PEM, to survive
+  `.env`'s bash-sourcing) plus, optionally,
+  `MEDIAMTX_JWT_ISSUER`/`MEDIAMTX_JWT_AUDIENCE` to match mediamtx.yml's
+  `authJWTIssuer`/`authJWTAudience` if those are set there.
+  `MEDIAMTX_JWT_TTL_SECONDS` (default 60) is deliberately short — a fresh
+  token is minted on every status poll, never persisted. Leaving
   `MEDIAMTX_JWT_PRIVATE_KEY` unset disables MediaMTX JWT auth entirely
   (`playback_token` stays `null`, and MediaMTX falls back to whatever other
   auth method — or none — is configured for its read path).
-- **Frontend** (`LiveCameraCard.tsx`): renders a `<video>` element driven by
-  `hls.js`, whose `xhrSetup` callback attaches `playback_token` as a Bearer
-  header on every request. Native Safari HLS (used when `Hls.isSupported()`
-  is false) has no way to carry a custom header at all — a known,
-  unavoidable gap for that one browser path.
+- **Frontend** (`CameraPanel.tsx`'s `useWebRtcPlayback` hook): creates a
+  receive-only `RTCPeerConnection` (this camera has no microphone), waits
+  for ICE candidate gathering to finish (bounded by a timeout — non-trickle
+  ICE, chosen for simplicity/robustness over PATCH-based trickle ICE),
+  POSTs the resulting SDP offer to `playback_url` with
+  `Authorization: Bearer <playback_token>` and `Content-Type: application/sdp`,
+  and sets the SDP answer from the response as its remote description. The
+  received track is attached to the `<video>` element via `srcObject`. A
+  retry loop (bounded attempts, fixed delay) covers both a rejected/failed
+  initial POST and a mid-stream `connectionState` transition to `"failed"`.
+  Teardown sends `DELETE` to the WHEP session URL returned in the initial
+  response's `Location` header. Deployment prerequisites this needs beyond
+  what HLS did: MediaMTX/its reverse proxy must expose the `Location`
+  response header cross-origin (`Access-Control-Expose-Headers: Location`),
+  and the deployment must allow inbound UDP for ICE/RTP media (MediaMTX's
+  `webrtcICEUDPMuxAddress` single-port-mux mode is the simplest config for a
+  server with a public IP).
 
 ### Agent publish authentication
 
@@ -413,9 +435,9 @@ dedicated open.
 ## Design Decisions
 
 - The browser never connects to the Raspberry Pi, in either phase — it only
-  ever fetches the HLS manifest at a URL the cloud server constructs and
-  returns (never one the frontend hardcodes or the device reports directly),
-  authenticated with a JWT the server mints alongside it.
+  ever negotiates WebRTC playback against a URL the cloud server constructs
+  and returns (never one the frontend hardcodes or the device reports
+  directly), authenticated with a JWT the server mints alongside it.
 - The cloud server controls camera lifecycle entirely through the existing
   Command domain (`camera.stream.start`/`camera.stream.stop`/`camera.snapshot`)
   — streaming itself still has no camera-specific persistence, only an
