@@ -22,7 +22,7 @@ export function ControlPanel({ onTriggerPump, disabled, triggering }: ControlPan
   return (
     <Card className="flex shrink-0 flex-col gap-3 p-4">
       <div className="flex items-center gap-2.5">
-        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-water/10 text-water">
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
           <Droplets className="size-4" />
         </div>
         <div>
@@ -38,7 +38,7 @@ export function ControlPanel({ onTriggerPump, disabled, triggering }: ControlPan
 
       <Button
         type="button"
-        className="w-full rounded-xl bg-water text-water-foreground hover:bg-water/90"
+        className="w-full rounded-xl"
         disabled={disabled || triggering}
         onClick={onTriggerPump}
       >

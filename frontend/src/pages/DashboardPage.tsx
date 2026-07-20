@@ -4,10 +4,9 @@ import { ControlPanel } from "@/components/dashboard/ControlPanel";
 import { DeviceHeroCard } from "@/components/dashboard/DeviceHeroCard";
 import { QuickSnapshotCard } from "@/components/dashboard/QuickSnapshotCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
-import { RecentMedia } from "@/components/dashboard/RecentMedia";
 import { RecentWorkflows } from "@/components/dashboard/RecentWorkflows";
-import { SystemStatusPanel } from "@/components/dashboard/SystemStatusPanel";
 import { UpcomingSchedules } from "@/components/dashboard/UpcomingSchedules";
+import { WeatherWidget } from "@/components/dashboard/WeatherWidget";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -35,7 +34,6 @@ export function DashboardPage() {
   );
 
   const commands = commandsPage?.items ?? [];
-  const latestCommand = commands[0];
   const latestPumpCommand = commands.find((command) => command.command_type === PUMP_TRIGGER);
   // The pulse itself is brief — "Triggering" only reflects the one in-flight
   // pump.trigger command, then falls back to Idle on its own; there is no
@@ -105,8 +103,7 @@ export function DashboardPage() {
               <RecentActivity commands={commands} deviceNameById={deviceNameById} />
             )}
           </Card>
-          <RecentMedia />
-          <SystemStatusPanel device={device} latestCommand={latestCommand} />
+          <WeatherWidget />
         </div>
       </div>
 

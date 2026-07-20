@@ -10,10 +10,8 @@ import {
 } from "@/hooks/useCamera";
 import { useCommand, useCommands, useCreateCommand } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
-import { useDispatcherStatistics, useDispatcherStatus } from "@/hooks/useDispatcher";
-import { useDeleteSnapshot, useSnapshot, useSnapshots } from "@/hooks/useSnapshots";
-import { useDeleteVideo, useVideo, useVideos } from "@/hooks/useVideos";
 import { useSchedules } from "@/hooks/useSchedules";
+import { useWeather } from "@/hooks/useWeather";
 import { useRunWorkflow, useWorkflows } from "@/hooks/useWorkflows";
 import type { CommandDTO, DeviceDTO } from "@/types/api";
 import { DashboardPage } from "./DashboardPage";
@@ -21,11 +19,9 @@ import { DashboardPage } from "./DashboardPage";
 vi.mock("@/hooks/useDevices");
 vi.mock("@/hooks/useCommands");
 vi.mock("@/hooks/useCamera");
-vi.mock("@/hooks/useDispatcher");
-vi.mock("@/hooks/useSnapshots");
-vi.mock("@/hooks/useVideos");
 vi.mock("@/hooks/useWorkflows");
 vi.mock("@/hooks/useSchedules");
+vi.mock("@/hooks/useWeather");
 vi.mock("hls.js", () => ({
   default: class {
     static isSupported() {
@@ -42,17 +38,10 @@ const mockedUseStartCameraStream = vi.mocked(useStartCameraStream);
 const mockedUseCameraStatus = vi.mocked(useCameraStatus);
 const mockedUseStopCameraStream = vi.mocked(useStopCameraStream);
 const mockedUseTakeSnapshot = vi.mocked(useTakeSnapshot);
-const mockedUseDispatcherStatus = vi.mocked(useDispatcherStatus);
-const mockedUseDispatcherStatistics = vi.mocked(useDispatcherStatistics);
-const mockedUseSnapshots = vi.mocked(useSnapshots);
-const mockedUseSnapshot = vi.mocked(useSnapshot);
-const mockedUseDeleteSnapshot = vi.mocked(useDeleteSnapshot);
-const mockedUseVideos = vi.mocked(useVideos);
-const mockedUseVideo = vi.mocked(useVideo);
-const mockedUseDeleteVideo = vi.mocked(useDeleteVideo);
 const mockedUseWorkflows = vi.mocked(useWorkflows);
 const mockedUseRunWorkflow = vi.mocked(useRunWorkflow);
 const mockedUseSchedules = vi.mocked(useSchedules);
+const mockedUseWeather = vi.mocked(useWeather);
 
 function mockCommonHooks() {
   mockedUseCommand.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
@@ -73,34 +62,11 @@ function mockCommonHooks() {
     mutate: vi.fn(),
     isPending: false,
   } as unknown as ReturnType<typeof useTakeSnapshot>);
-  mockedUseDispatcherStatus.mockReturnValue({
+  mockedUseWeather.mockReturnValue({
     data: undefined,
+    isLoading: false,
     isError: true,
-  } as unknown as ReturnType<typeof useDispatcherStatus>);
-  mockedUseDispatcherStatistics.mockReturnValue({
-    data: undefined,
-    isError: true,
-  } as unknown as ReturnType<typeof useDispatcherStatistics>);
-  mockedUseSnapshots.mockReturnValue({
-    data: { items: [], total: 0, offset: 0, limit: 3 },
-  } as unknown as ReturnType<typeof useSnapshots>);
-  mockedUseSnapshot.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
-    typeof useSnapshot
-  >);
-  mockedUseDeleteSnapshot.mockReturnValue({
-    mutateAsync: vi.fn().mockResolvedValue(undefined),
-    isPending: false,
-  } as unknown as ReturnType<typeof useDeleteSnapshot>);
-  mockedUseVideos.mockReturnValue({
-    data: { items: [], total: 0, offset: 0, limit: 3 },
-  } as unknown as ReturnType<typeof useVideos>);
-  mockedUseVideo.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
-    typeof useVideo
-  >);
-  mockedUseDeleteVideo.mockReturnValue({
-    mutateAsync: vi.fn().mockResolvedValue(undefined),
-    isPending: false,
-  } as unknown as ReturnType<typeof useDeleteVideo>);
+  } as unknown as ReturnType<typeof useWeather>);
   mockedUseWorkflows.mockReturnValue({
     data: { items: [], total: 0, offset: 0, limit: 20 },
   } as unknown as ReturnType<typeof useWorkflows>);
