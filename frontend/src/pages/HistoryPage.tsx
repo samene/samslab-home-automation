@@ -9,7 +9,7 @@ import { useBulkDeleteCommands, useCommands } from "@/hooks/useCommands";
 import { useDevices } from "@/hooks/useDevices";
 import type { CommandStatus } from "@/types/api";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 50;
 const STATUS_OPTIONS: CommandStatus[] = [
   "PENDING",
   "QUEUED",

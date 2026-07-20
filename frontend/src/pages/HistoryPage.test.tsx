@@ -104,7 +104,7 @@ describe("HistoryPage", () => {
   it("enables Next when there are more pages, and expands a card's details on click", async () => {
     mockedUseDevices.mockReturnValue({ data: DEVICES } as unknown as ReturnType<typeof useDevices>);
     mockedUseCommands.mockReturnValue({
-      data: { items: makeCommands(20), total: 45, offset: 0, limit: 20 },
+      data: { items: makeCommands(50), total: 75, offset: 0, limit: 50 },
       isLoading: false,
     } as unknown as ReturnType<typeof useCommands>);
     mockedUseCommand.mockReturnValue({ data: undefined, isLoading: true } as unknown as ReturnType<

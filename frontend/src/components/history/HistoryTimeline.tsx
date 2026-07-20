@@ -1,4 +1,4 @@
-import { Camera, Droplets, ImageIcon, Radio, Trash2 } from "lucide-react";
+import { Camera, Droplets, Radio, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import {
@@ -13,7 +13,7 @@ import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
 import { useScheduleExecutions } from "@/hooks/useSchedules";
-import { formatDuration, formatTimestamp, friendlyCommandLabel, getThumbnailUrl } from "@/lib/format";
+import { formatDuration, formatTimestamp, friendlyCommandLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CommandDTO } from "@/types/api";
 
@@ -169,8 +169,6 @@ function HistoryCardDetail({
     );
   }
 
-  const thumbnailUrl = getThumbnailUrl(command.result?.result);
-
   return (
     <div className="flex flex-col gap-3 pl-0 text-sm sm:pl-[3.25rem]">
       <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
@@ -179,18 +177,8 @@ function HistoryCardDetail({
         <Field label="Retries">
           {command.retry_count} / {command.max_retries}
         </Field>
-        <Field label="Priority">{command.priority}</Field>
         <Field label="Triggered By">{scheduleName ? `Scheduled via ${scheduleName}` : "Manual"}</Field>
       </dl>
-
-      {thumbnailUrl ? (
-        <img src={thumbnailUrl} alt="" className="max-h-64 w-full rounded-xl object-contain" />
-      ) : (
-        <div className="flex h-16 items-center justify-center gap-2 rounded-xl bg-muted text-xs text-muted-foreground">
-          <ImageIcon className="size-4" />
-          No snapshot or recording available yet
-        </div>
-      )}
 
       {command.result?.error_message ? (
         <div>
