@@ -12,7 +12,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -114,9 +114,7 @@ class AgentSettings(BaseSettings):
     # streaming resolution. When a stream *is* active, the snapshot reuses
     # that session's frame source as-is, at whatever resolution it's
     # currently running — these settings don't apply in that case.
-    camera_snapshot_width: int = Field(
-        default=1920, gt=0, validation_alias="CAMERA_SNAPSHOT_WIDTH"
-    )
+    camera_snapshot_width: int = Field(default=1920, gt=0, validation_alias="CAMERA_SNAPSHOT_WIDTH")
     camera_snapshot_height: int = Field(
         default=1080, gt=0, validation_alias="CAMERA_SNAPSHOT_HEIGHT"
     )
@@ -140,6 +138,78 @@ class AgentSettings(BaseSettings):
     )
     aws_s3_bucket: str | None = Field(default=None, validation_alias="AWS_S3_BUCKET")
     aws_s3_prefix: str = Field(default="snapshots", validation_alias="AWS_S3_PREFIX")
+    # Recording is independent of streaming (see app/plugins/camera/service.py's
+    # start_recording/stop_recording): local-only MP4 capture at the highest
+    # practical quality, never MediaMTX, uploaded directly to S3 only after
+    # the file is finalized. Deliberately higher-quality defaults than
+    # camera_width/camera_height/camera_bitrate_kbps, which are tuned for
+    # low-latency streaming instead.
+    camera_record_width: int = Field(default=1920, gt=0, validation_alias="CAMERA_RECORD_WIDTH")
+    camera_record_height: int = Field(default=1080, gt=0, validation_alias="CAMERA_RECORD_HEIGHT")
+    camera_record_fps: int = Field(default=30, gt=0, le=120, validation_alias="CAMERA_RECORD_FPS")
+    camera_record_bitrate_kbps: int = Field(
+        default=8000, gt=0, validation_alias="CAMERA_RECORD_BITRATE_KBPS"
+    )
+    camera_record_preset: str = Field(default="veryfast", validation_alias="CAMERA_RECORD_PRESET")
+    # A safety valve against a forgotten recording silently filling the Pi's
+    # local disk (e.g. a stray manual start, or a workflow bug): the pump
+    # thread releases the camera hardware once exceeded. The local file
+    # itself is left in place, still uploadable by a subsequent
+    # camera.record.stop — this never silently discards a recording.
+    camera_record_max_duration_seconds: float = Field(
+        default=1800.0, gt=0, validation_alias="CAMERA_RECORD_MAX_DURATION_SECONDS"
+    )
+    # On-sensor HDR (Camera Module 3 / IMX708 only — see
+    # app/plugins/camera/sensor_hdr.py), toggled on only around a snapshot's
+    # or a recording's own dedicated FrameSource open/close, never around
+    # live streaming. Silently a no-op on any other camera (Camera Module 2,
+    # a USB webcam), so leaving this enabled is safe everywhere; disable it
+    # only if the HDR mode's resolution/framerate tradeoffs aren't wanted.
+    camera_hdr_sensor_mode: bool = Field(default=True, validation_alias="CAMERA_HDR_SENSOR_MODE")
+    # The pump plugin never controls watering duration — a timer relay wired
+    # to this GPIO line owns that entirely. The agent only ever generates one
+    # short pulse (pump.trigger) to fire the relay's own timer; see
+    # docs/agent/PUMP.md. GPIO17 is a physical-pin-safe default (not one of
+    # the boot-strap-sensitive pins like GPIO2/3 (I2C) or GPIO14/15 (UART)),
+    # but any deployment can override it.
+    pump_gpio_pin: int = Field(default=17, ge=0, le=27, validation_alias="PUMP_GPIO_PIN")
+    # Whether energizing the relay's trigger input means driving this line
+    # physically HIGH (True, the common case for an active-high opto-isolated
+    # relay module) or physically LOW (False, an active-low module). The
+    # *safe, idle* level is always the de-energized one — physical LOW when
+    # this is True, physical HIGH when it's False — never a raw, polarity-
+    # blind "always drive the pin LOW", since that would leave an active-low
+    # relay permanently energized at rest. See app/plugins/pump/gpio.py.
+    pump_active_high: bool = Field(default=True, validation_alias="PUMP_ACTIVE_HIGH")
+    pump_trigger_pulse_ms: int = Field(default=200, gt=0, validation_alias="PUMP_TRIGGER_PULSE_MS")
+    # A command-supplied pulse_duration_ms override (pump.trigger's one
+    # optional argument) is only honored within these bounds — see
+    # PumpTriggerHandler.validate(). Guards against a malformed/malicious
+    # override holding the relay's trigger input closed far longer than any
+    # real timer relay module needs to latch, or so briefly the relay never
+    # reliably triggers at all.
+    pump_trigger_pulse_min_ms: int = Field(
+        default=50, gt=0, validation_alias="PUMP_TRIGGER_PULSE_MIN_MS"
+    )
+    pump_trigger_pulse_max_ms: int = Field(
+        default=5000, gt=0, validation_alias="PUMP_TRIGGER_PULSE_MAX_MS"
+    )
+
+    @model_validator(mode="after")
+    def validate_pump_pulse_bounds(self) -> AgentSettings:
+        """Fail fast on a misconfigured pulse range rather than at the first pump.trigger."""
+        if self.pump_trigger_pulse_min_ms > self.pump_trigger_pulse_max_ms:
+            raise ValueError("PUMP_TRIGGER_PULSE_MIN_MS must not exceed PUMP_TRIGGER_PULSE_MAX_MS")
+        if not (
+            self.pump_trigger_pulse_min_ms
+            <= self.pump_trigger_pulse_ms
+            <= self.pump_trigger_pulse_max_ms
+        ):
+            raise ValueError(
+                "PUMP_TRIGGER_PULSE_MS must be within "
+                "[PUMP_TRIGGER_PULSE_MIN_MS, PUMP_TRIGGER_PULSE_MAX_MS]"
+            )
+        return self
 
     @field_validator(
         "aws_region", "aws_access_key_id", "aws_secret_access_key", "aws_s3_bucket", mode="before"

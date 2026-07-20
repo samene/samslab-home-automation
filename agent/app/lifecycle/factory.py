@@ -22,6 +22,9 @@ from app.lifecycle.orchestrator import Agent
 from app.plugins.camera.handlers import register_camera_handlers
 from app.plugins.camera.plugin import CameraPlugin
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.handlers import register_pump_handlers
+from app.plugins.pump.plugin import PumpPlugin
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.state.machine import StateMachine
@@ -39,11 +42,14 @@ def build_agent(settings: AgentSettings, *, plugin_manager: PluginManager | None
     plugins = plugin_manager or PluginManager()
     camera_service = CameraService(settings)
     plugins.register(CameraPlugin(camera_service))
+    pump_service = PumpService(settings)
+    plugins.register(PumpPlugin(pump_service))
     health_service = HealthService(settings=settings, session=session, plugin_manager=plugins)
 
     registry = CommandRegistry()
     register_builtin_handlers(registry)
     register_camera_handlers(registry)
+    register_pump_handlers(registry)
     command_dispatcher = CommandDispatcher(
         registry=registry,
         executor=CommandExecutor(),
@@ -55,6 +61,7 @@ def build_agent(settings: AgentSettings, *, plugin_manager: PluginManager | None
             registry=registry,
             agent_started_at=datetime.now(UTC),
             camera_service=camera_service,
+            pump_service=pump_service,
         ),
         send=connection_manager.send,
         agent_version=AGENT_VERSION,

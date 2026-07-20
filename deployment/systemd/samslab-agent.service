@@ -30,18 +30,20 @@ StandardError=journal
 SyslogIdentifier=samslab-agent
 
 # Hardening. The camera plugin needs /dev/video*, /dev/media*, and
-# /dev/dma_heap/* (via libcamera/picamera2 for a CSI camera module) — none of
-# that is restricted here (no PrivateDevices=/DeviceAllow=), since systemd
-# device sandboxing isn't the right layer for this; instead grant access the
-# normal Unix way, by adding this unit's User= to the group that owns those
-# device nodes (usually "video" on Raspberry Pi OS — confirm with
-# `ls -l /dev/media0`), then `systemctl daemon-reload && systemctl restart`.
+# /dev/dma_heap/* (via libcamera/picamera2 for a CSI camera module); the pump
+# plugin needs /dev/gpiochip0 (via lgpio, for the RP1 GPIO controller — see
+# docs/agent/PUMP.md). None of that is restricted here (no
+# PrivateDevices=/DeviceAllow=), since systemd device sandboxing isn't the
+# right layer for this; instead grant access the normal Unix way, by adding
+# this unit's User= to the groups that own those device nodes (usually
+# "video" and "gpio" on Raspberry Pi OS — confirm with `ls -l /dev/media0
+# /dev/gpiochip0`), then `systemctl daemon-reload && systemctl restart`.
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 ReadWritePaths=/var/lib/samslab-agent /var/cache/samslab-agent
-SupplementaryGroups=video
+SupplementaryGroups=video gpio
 
 [Install]
 WantedBy=multi-user.target

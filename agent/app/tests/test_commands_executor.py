@@ -30,6 +30,7 @@ from app.commands.result import (
 )
 from app.health.service import HealthService
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.tests.conftest import make_settings
@@ -54,6 +55,7 @@ def _make_context(
         registry=CommandRegistry(),
         agent_started_at=datetime.now(UTC),
         camera_service=CameraService(settings),
+        pump_service=PumpService(settings),
     )
     return CommandContext(
         command_id=command_id or uuid4(),

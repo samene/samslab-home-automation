@@ -20,6 +20,7 @@ from app.commands.lifecycle import CommandLifecycleState
 from app.commands.registry import CommandRegistry
 from app.health.service import HealthService
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.tests.conftest import make_settings
@@ -104,6 +105,7 @@ def _make_dispatcher(
         registry=reg,
         agent_started_at=datetime.now(UTC),
         camera_service=CameraService(settings),
+        pump_service=PumpService(settings),
     )
     event_bus = CommandEventBus()
     fake_sender = sender or FakeSender()

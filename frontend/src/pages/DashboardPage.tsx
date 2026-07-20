@@ -4,7 +4,7 @@ import { ControlPanel } from "@/components/dashboard/ControlPanel";
 import { DeviceHeroCard } from "@/components/dashboard/DeviceHeroCard";
 import { QuickSnapshotCard } from "@/components/dashboard/QuickSnapshotCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
-import { RecentSnapshots } from "@/components/dashboard/RecentSnapshots";
+import { RecentMedia } from "@/components/dashboard/RecentMedia";
 import { RecentWorkflows } from "@/components/dashboard/RecentWorkflows";
 import { SystemStatusPanel } from "@/components/dashboard/SystemStatusPanel";
 import { UpcomingSchedules } from "@/components/dashboard/UpcomingSchedules";
@@ -16,8 +16,7 @@ import { useCreateCommand, useCommands } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
 import type { CameraStatusDTO } from "@/types/api";
 
-const PUMP_START = "pump.start";
-const PUMP_STOP = "pump.stop";
+const PUMP_TRIGGER = "pump.trigger";
 
 export function DashboardPage() {
   const { data: device, isLoading: isDeviceLoading } = usePrimaryDevice();
@@ -27,7 +26,7 @@ export function DashboardPage() {
   const stopCameraStream = useStopCameraStream();
   const takeSnapshot = useTakeSnapshot();
 
-  const [pendingCommandType, setPendingCommandType] = useState<string | null>(null);
+  const [pumpConfirmOpen, setPumpConfirmOpen] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<CameraStatusDTO | null>(null);
 
   const deviceNameById = useMemo(
@@ -37,14 +36,13 @@ export function DashboardPage() {
 
   const commands = commandsPage?.items ?? [];
   const latestCommand = commands[0];
-  const latestPumpCommand = commands.find((command) => command.command_type.startsWith("pump."));
-  const pumpState =
-    !latestPumpCommand
-      ? "Unknown"
-      : latestPumpCommand.command_type === PUMP_START &&
-          (latestPumpCommand.status === "DISPATCHED" || latestPumpCommand.status === "RUNNING")
-        ? "Active"
-        : "Idle";
+  const latestPumpCommand = commands.find((command) => command.command_type === PUMP_TRIGGER);
+  // The pulse itself is brief — "Triggering" only reflects the one in-flight
+  // pump.trigger command, then falls back to Idle on its own; there is no
+  // "Active"/"Running" pump state, since the Pi never controls watering
+  // duration (the timer relay does — see docs/agent/PUMP.md).
+  const pumpTriggering =
+    latestPumpCommand?.status === "DISPATCHED" || latestPumpCommand?.status === "RUNNING";
 
   async function handleGoLive() {
     const status = await startCameraStream.mutateAsync();
@@ -56,10 +54,10 @@ export function DashboardPage() {
     setCameraStatus(null);
   }
 
-  async function handleConfirmPumpCommand() {
-    if (!pendingCommandType || !device) return;
-    await createCommand.mutateAsync({ device_id: device.id, command_type: pendingCommandType });
-    setPendingCommandType(null);
+  async function handleConfirmPumpTrigger() {
+    if (!device) return;
+    await createCommand.mutateAsync({ device_id: device.id, command_type: PUMP_TRIGGER });
+    setPumpConfirmOpen(false);
   }
 
   return (
@@ -73,9 +71,8 @@ export function DashboardPage() {
           )}
           <ControlPanel
             disabled={!device}
-            pumpState={pumpState}
-            onStartWatering={() => setPendingCommandType(PUMP_START)}
-            onStopWatering={() => setPendingCommandType(PUMP_STOP)}
+            triggering={pumpTriggering}
+            onTriggerPump={() => setPumpConfirmOpen(true)}
           />
           <QuickSnapshotCard hasDevice={Boolean(device)} />
           <RecentWorkflows />
@@ -108,23 +105,23 @@ export function DashboardPage() {
               <RecentActivity commands={commands} deviceNameById={deviceNameById} />
             )}
           </Card>
-          <RecentSnapshots />
+          <RecentMedia />
           <SystemStatusPanel device={device} latestCommand={latestCommand} />
         </div>
       </div>
 
       <ConfirmDialog
-        open={pendingCommandType !== null}
-        onOpenChange={(open) => !open && setPendingCommandType(null)}
-        title={pendingCommandType === PUMP_START ? "Start Watering" : "Stop Watering"}
+        open={pumpConfirmOpen}
+        onOpenChange={setPumpConfirmOpen}
+        title="Trigger Pump"
         description={
           device
-            ? `Send "${pendingCommandType}" to ${device.display_name}?`
+            ? `Send "${PUMP_TRIGGER}" to ${device.display_name}? This fires a short GPIO pulse to trigger the timer relay, which controls the actual watering duration.`
             : "No device available."
         }
-        confirmLabel="Send"
+        confirmLabel="Trigger"
         isConfirming={createCommand.isPending}
-        onConfirm={() => void handleConfirmPumpCommand()}
+        onConfirm={() => void handleConfirmPumpTrigger()}
       />
     </div>
   );

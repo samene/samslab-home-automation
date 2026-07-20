@@ -36,6 +36,17 @@ camera = [
   "opencv-python-headless>=4.9,<5",
   "boto3>=1.35,<2",
 ]
+# GPIO hardware access for the pump plugin (and future relay/LED plugins).
+# Not a hard dependency: import is guarded at the call site
+# (app/plugins/pump/gpio.py) so the rest of the agent, including its test
+# suite, runs fine on a machine without GPIO hardware or this extra
+# installed. lgpio talks to the kernel's /dev/gpiochip* character device
+# interface, which is what makes it (unlike RPi.GPIO) compatible with the
+# Pi 5's RP1 GPIO controller — see docs/agent/GPIO.md and
+# docs/agent/PUMP.md.
+gpio = [
+  "lgpio>=0.2,<1",
+]
 
 [project.scripts]
 samslab-agent = "app.cli.main:main"
@@ -72,6 +83,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["picamera2.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["lgpio.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

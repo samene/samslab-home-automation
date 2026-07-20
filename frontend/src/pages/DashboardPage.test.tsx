@@ -12,6 +12,7 @@ import { useCommand, useCommands, useCreateCommand } from "@/hooks/useCommands";
 import { usePrimaryDevice } from "@/hooks/useDevices";
 import { useDispatcherStatistics, useDispatcherStatus } from "@/hooks/useDispatcher";
 import { useDeleteSnapshot, useSnapshot, useSnapshots } from "@/hooks/useSnapshots";
+import { useDeleteVideo, useVideo, useVideos } from "@/hooks/useVideos";
 import { useSchedules } from "@/hooks/useSchedules";
 import { useRunWorkflow, useWorkflows } from "@/hooks/useWorkflows";
 import type { CommandDTO, DeviceDTO } from "@/types/api";
@@ -22,6 +23,7 @@ vi.mock("@/hooks/useCommands");
 vi.mock("@/hooks/useCamera");
 vi.mock("@/hooks/useDispatcher");
 vi.mock("@/hooks/useSnapshots");
+vi.mock("@/hooks/useVideos");
 vi.mock("@/hooks/useWorkflows");
 vi.mock("@/hooks/useSchedules");
 vi.mock("hls.js", () => ({
@@ -45,6 +47,9 @@ const mockedUseDispatcherStatistics = vi.mocked(useDispatcherStatistics);
 const mockedUseSnapshots = vi.mocked(useSnapshots);
 const mockedUseSnapshot = vi.mocked(useSnapshot);
 const mockedUseDeleteSnapshot = vi.mocked(useDeleteSnapshot);
+const mockedUseVideos = vi.mocked(useVideos);
+const mockedUseVideo = vi.mocked(useVideo);
+const mockedUseDeleteVideo = vi.mocked(useDeleteVideo);
 const mockedUseWorkflows = vi.mocked(useWorkflows);
 const mockedUseRunWorkflow = vi.mocked(useRunWorkflow);
 const mockedUseSchedules = vi.mocked(useSchedules);
@@ -86,6 +91,16 @@ function mockCommonHooks() {
     mutateAsync: vi.fn().mockResolvedValue(undefined),
     isPending: false,
   } as unknown as ReturnType<typeof useDeleteSnapshot>);
+  mockedUseVideos.mockReturnValue({
+    data: { items: [], total: 0, offset: 0, limit: 3 },
+  } as unknown as ReturnType<typeof useVideos>);
+  mockedUseVideo.mockReturnValue({ data: undefined, isLoading: false } as unknown as ReturnType<
+    typeof useVideo
+  >);
+  mockedUseDeleteVideo.mockReturnValue({
+    mutateAsync: vi.fn().mockResolvedValue(undefined),
+    isPending: false,
+  } as unknown as ReturnType<typeof useDeleteVideo>);
   mockedUseWorkflows.mockReturnValue({
     data: { items: [], total: 0, offset: 0, limit: 20 },
   } as unknown as ReturnType<typeof useWorkflows>);
@@ -119,7 +134,7 @@ function makeCommand(overrides: Partial<CommandDTO> = {}): CommandDTO {
   return {
     id: "cmd-1",
     device_id: "device-1",
-    command_type: "pump.start",
+    command_type: "pump.trigger",
     status: "COMPLETED",
     priority: "NORMAL",
     payload: {},
@@ -165,7 +180,7 @@ describe("DashboardPage", () => {
     expect(screen.getAllByText("Online").length).toBeGreaterThan(0);
     expect(screen.getByText("1.2.0")).toBeInTheDocument();
     expect(screen.getByText("Camera is idle")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start pump/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /trigger pump/i })).toBeInTheDocument();
   });
 
   it("starts the camera stream when Go Live is clicked, and reveals live controls", async () => {
@@ -223,11 +238,14 @@ describe("DashboardPage", () => {
     const user = userEvent.setup();
     renderDashboard();
 
-    await user.click(screen.getByRole("button", { name: /start pump/i }));
-    expect(screen.getByText(/Send "pump.start" to Backyard Pi\?/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /trigger pump/i }));
+    expect(screen.getByText(/Send "pump.trigger" to Backyard Pi\?/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Send" }));
-    expect(mutateAsync).toHaveBeenCalledWith({ device_id: "device-1", command_type: "pump.start" });
+    await user.click(screen.getByRole("button", { name: "Trigger" }));
+    expect(mutateAsync).toHaveBeenCalledWith({
+      device_id: "device-1",
+      command_type: "pump.trigger",
+    });
   });
 
   it("shows an empty state when there is no device", () => {
@@ -246,6 +264,6 @@ describe("DashboardPage", () => {
     renderDashboard();
 
     expect(screen.getByText("No devices registered yet.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start pump/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /trigger pump/i })).toBeDisabled();
   });
 });

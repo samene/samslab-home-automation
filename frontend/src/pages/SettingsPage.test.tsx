@@ -71,4 +71,17 @@ describe("SettingsPage", () => {
     expect(screen.getByText("ok")).toBeInTheDocument();
     expect(screen.getByText("samslab-cloud")).toBeInTheDocument();
   });
+
+  it("shows the pump's GPIO configuration and timer relay note", () => {
+    mockedUseAuth.mockReturnValue({ status: "authenticated", user: null, login: vi.fn(), logout: vi.fn() });
+    mockedUseTheme.mockReturnValue({ theme: "dark", setTheme: vi.fn() });
+    mockedUseServiceInfo.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useServiceInfo>);
+
+    render(<SettingsPage />);
+
+    expect(screen.getByText(/PUMP_GPIO_PIN/)).toBeInTheDocument();
+    expect(screen.getByText(/PUMP_ACTIVE_HIGH/)).toBeInTheDocument();
+    expect(screen.getByText(/PUMP_TRIGGER_PULSE_MS/)).toBeInTheDocument();
+    expect(screen.getByText(/intended for timer relay triggering/)).toBeInTheDocument();
+  });
 });

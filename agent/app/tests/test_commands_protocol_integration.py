@@ -23,6 +23,7 @@ from app.commands.registry import CommandRegistry
 from app.dispatcher.dispatcher import MessageDispatcher
 from app.health.service import HealthService
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.tests.conftest import make_settings
@@ -65,6 +66,7 @@ async def test_command_flows_from_message_dispatcher_through_to_result() -> None
             registry=registry,
             agent_started_at=datetime.now(UTC),
             camera_service=CameraService(settings),
+            pump_service=PumpService(settings),
         ),
         send=sender.send,
         agent_version="0.1.0",
@@ -119,6 +121,7 @@ async def test_message_dispatcher_never_blocks_on_command_execution() -> None:
             registry=registry,
             agent_started_at=datetime.now(UTC),
             camera_service=CameraService(settings),
+            pump_service=PumpService(settings),
         ),
         send=sender.send,
         agent_version="0.1.0",

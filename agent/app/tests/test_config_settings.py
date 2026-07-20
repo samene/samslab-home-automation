@@ -123,3 +123,47 @@ def test_load_settings_with_no_overrides_requires_environment(
 
     assert settings.server_url == "ws://env.example/ws"
     assert settings.device_name == "env-device"
+
+
+def test_pump_settings_defaults() -> None:
+    """PUMP_* fields default to a safe, active-high 200ms pulse on GPIO17."""
+    settings = make_settings()
+
+    assert settings.pump_gpio_pin == 17
+    assert settings.pump_active_high is True
+    assert settings.pump_trigger_pulse_ms == 200
+    assert settings.pump_trigger_pulse_min_ms == 50
+    assert settings.pump_trigger_pulse_max_ms == 5000
+
+
+def test_pump_settings_are_overridable() -> None:
+    """Every pump setting is configurable via environment variables."""
+    settings = make_settings(
+        PUMP_GPIO_PIN=22,
+        PUMP_ACTIVE_HIGH=False,
+        PUMP_TRIGGER_PULSE_MS=300,
+        PUMP_TRIGGER_PULSE_MIN_MS=100,
+        PUMP_TRIGGER_PULSE_MAX_MS=1000,
+    )
+
+    assert settings.pump_gpio_pin == 22
+    assert settings.pump_active_high is False
+    assert settings.pump_trigger_pulse_ms == 300
+    assert settings.pump_trigger_pulse_min_ms == 100
+    assert settings.pump_trigger_pulse_max_ms == 1000
+
+
+def test_pump_settings_reject_pulse_ms_outside_its_own_bounds() -> None:
+    """The default pulse must itself fall within [min, max] — fail fast at startup."""
+    with pytest.raises(ValidationError, match="PUMP_TRIGGER_PULSE_MS"):
+        make_settings(
+            PUMP_TRIGGER_PULSE_MS=10,
+            PUMP_TRIGGER_PULSE_MIN_MS=50,
+            PUMP_TRIGGER_PULSE_MAX_MS=5000,
+        )
+
+
+def test_pump_settings_reject_min_greater_than_max() -> None:
+    """An inverted pulse range is rejected rather than silently misbehaving."""
+    with pytest.raises(ValidationError, match="PUMP_TRIGGER_PULSE_MIN_MS"):
+        make_settings(PUMP_TRIGGER_PULSE_MIN_MS=1000, PUMP_TRIGGER_PULSE_MAX_MS=500)

@@ -65,6 +65,24 @@ export function SettingsPage() {
           <Field label="Application version" value={APP_VERSION} />
         </CardContent>
       </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Pump</CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <Field label="GPIO pin" value="PUMP_GPIO_PIN (default: 17)" />
+          <Field label="Active high" value="PUMP_ACTIVE_HIGH (default: true)" />
+          <Field label="Pulse duration" value="PUMP_TRIGGER_PULSE_MS (default: 200 ms)" />
+          <Separator className="my-1" />
+          <p className="text-sm text-muted-foreground">
+            This output is intended for timer relay triggering. The Raspberry Pi only
+            generates a short GPIO pulse — the timer relay it drives controls the actual
+            watering duration, not the Pi. These values are configured per-agent via
+            environment variables (see docs/agent/PUMP.md), not editable from this page.
+          </p>
+        </CardContent>
+      </Card>
     </div>
     </div>
   );

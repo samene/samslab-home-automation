@@ -18,6 +18,7 @@ from app.commands import metrics as command_metrics
 from app.config.settings import AgentSettings
 from app.health.service import HealthService
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from shared.protocol.schemas import CommandPayload, Envelope
 
@@ -31,9 +32,10 @@ class CommandServices:
 
     ``camera_service`` is the first hardware-adjacent domain service threaded
     through here (behind ``CameraService``'s own ``FrameSource``/
-    ``StreamPublisher`` seams, never GPIO/OpenCV/ffmpeg directly) — a future
-    GPIO/scheduler service follows the same pattern: add a field here, never
-    have a handler import a hardware library directly.
+    ``StreamPublisher`` seams, never GPIO/OpenCV/ffmpeg directly); ``pump_service``
+    follows the same pattern behind ``PumpService``'s own ``PumpGpioPort`` seam
+    — a future scheduler service follows the same shape: add a field here,
+    never have a handler import a hardware library directly.
     """
 
     plugin_manager: PluginManager
@@ -41,6 +43,7 @@ class CommandServices:
     registry: CommandRegistry
     agent_started_at: datetime
     camera_service: CameraService
+    pump_service: PumpService
 
 
 @dataclass(frozen=True)

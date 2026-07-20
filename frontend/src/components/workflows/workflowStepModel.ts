@@ -5,8 +5,18 @@ import type {
   WorkflowStepType,
 } from "@/types/api";
 
-/** The three currently-real command types — a starting point for the datalist, not an exhaustive list (free text is still accepted). */
-export const KNOWN_COMMAND_TYPES = ["camera.stream.start", "camera.stream.stop", "camera.snapshot"];
+/** The currently-real command types — a starting point for the datalist, not an exhaustive list (free text is still accepted). */
+export const KNOWN_COMMAND_TYPES = [
+  "camera.stream.start",
+  "camera.stream.stop",
+  "camera.snapshot",
+  "camera.record.start",
+  "camera.record.stop",
+  // No duration parameter here or anywhere in a workflow step: the timer
+  // relay wired to the pump's GPIO line owns watering duration, not the Pi
+  // — see docs/agent/PUMP.md.
+  "pump.trigger",
+];
 
 /** A step as edited in local state — plain values (never null) so inputs stay controlled, converted to/from the wire shape at the editor's boundary. */
 export interface EditableStep {

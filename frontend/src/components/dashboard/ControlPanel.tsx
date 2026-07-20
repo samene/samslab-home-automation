@@ -1,22 +1,24 @@
-import { Droplet, Droplets } from "lucide-react";
+import { Droplets } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 interface ControlPanelProps {
-  onStartWatering: () => void;
-  onStopWatering: () => void;
+  onTriggerPump: () => void;
   disabled: boolean;
-  pumpState: "Active" | "Idle" | "Unknown";
+  triggering: boolean;
 }
 
-/** Manual override — always visible, stacked below the device card in column 1. */
-export function ControlPanel({
-  onStartWatering,
-  onStopWatering,
-  disabled,
-  pumpState,
-}: ControlPanelProps) {
+/**
+ * Manual override — always visible, stacked below the device card in column 1.
+ *
+ * A single "Trigger Pump" action, no stop button: the Pi never controls
+ * watering duration, it only pulses a GPIO line to fire a timer relay, which
+ * owns the actual run time — see docs/agent/PUMP.md. The button (and badge)
+ * shows "Triggering..." only for the brief window the pump.trigger command
+ * is in flight, then returns to Idle on its own.
+ */
+export function ControlPanel({ onTriggerPump, disabled, triggering }: ControlPanelProps) {
   return (
     <Card className="flex shrink-0 flex-col gap-3 p-4">
       <div className="flex items-center gap-2.5">
@@ -26,35 +28,23 @@ export function ControlPanel({
         <div>
           <p className="text-sm font-semibold">Pump</p>
           <Badge
-            variant={pumpState === "Active" ? "success" : "outline"}
+            variant={triggering ? "success" : "outline"}
             className="rounded-full text-[11px]"
           >
-            {pumpState === "Active" ? "Running" : pumpState === "Idle" ? "Stopped" : "Unknown"}
+            {triggering ? "Triggering" : "Idle"}
           </Badge>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2">
-        <Button
-          type="button"
-          className="w-full rounded-xl bg-water text-water-foreground hover:bg-water/90"
-          disabled={disabled}
-          onClick={onStartWatering}
-        >
-          <Droplets className="size-4" />
-          Start Pump
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full rounded-xl"
-          disabled={disabled}
-          onClick={onStopWatering}
-        >
-          <Droplet className="size-4" />
-          Stop Pump
-        </Button>
-      </div>
+      <Button
+        type="button"
+        className="w-full rounded-xl bg-water text-water-foreground hover:bg-water/90"
+        disabled={disabled || triggering}
+        onClick={onTriggerPump}
+      >
+        <Droplets className="size-4" />
+        {triggering ? "Triggering..." : "Trigger Pump"}
+      </Button>
     </Card>
   );
 }

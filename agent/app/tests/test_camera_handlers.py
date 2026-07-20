@@ -20,6 +20,7 @@ from app.plugins.camera.handlers import (
     register_camera_handlers,
 )
 from app.plugins.camera.service import CameraService
+from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
 from app.services.session import SessionState
 from app.tests.conftest import make_settings
@@ -39,6 +40,7 @@ def _context(camera_service: CameraService, registry: CommandRegistry) -> Comman
         registry=registry,
         agent_started_at=datetime.now(UTC),
         camera_service=camera_service,
+        pump_service=PumpService(settings),
     )
     return CommandContext(
         command_id=uuid4(),
@@ -76,7 +78,7 @@ def _camera_service() -> CameraService:
     )
 
 
-def test_register_camera_handlers_registers_all_four() -> None:
+def test_register_camera_handlers_registers_all_six() -> None:
     registry = CommandRegistry()
     register_camera_handlers(registry)
 
@@ -86,6 +88,8 @@ def test_register_camera_handlers_registers_all_four() -> None:
         "camera.stream.stop",
         "camera.status",
         "camera.snapshot",
+        "camera.record.start",
+        "camera.record.stop",
     }
 
 
