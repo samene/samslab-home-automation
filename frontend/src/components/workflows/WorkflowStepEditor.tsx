@@ -62,7 +62,7 @@ function StepCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="size-7 coarse:size-11"
                 disabled={!canMoveUp}
                 onClick={onMoveUp}
                 aria-label="Move step up"
@@ -73,7 +73,7 @@ function StepCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="size-7 coarse:size-11"
                 disabled={!canMoveDown}
                 onClick={onMoveDown}
                 aria-label="Move step down"
@@ -84,7 +84,7 @@ function StepCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7"
+                className="size-7 coarse:size-11"
                 onClick={onDuplicate}
                 aria-label="Duplicate step"
               >
@@ -94,7 +94,7 @@ function StepCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-7 text-destructive hover:text-destructive"
+                className="size-7 text-destructive hover:text-destructive coarse:size-11"
                 onClick={onDelete}
                 aria-label="Delete step"
               >

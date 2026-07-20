@@ -126,7 +126,7 @@ export function ScheduleEditorPage() {
               value={workflowId}
               onChange={(event) => setWorkflowId(event.target.value)}
               className={cn(
-                "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs",
+                "h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs coarse:h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 !workflowId && "border-destructive",
               )}
             >
@@ -144,12 +144,12 @@ export function ScheduleEditorPage() {
             ) : null}
           </div>
 
-          <label className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2 py-1 text-sm">
             <input
               type="checkbox"
               checked={enabled}
               onChange={(event) => setEnabled(event.target.checked)}
-              className="size-4 rounded border-input accent-primary"
+              className="size-4 rounded border-input accent-primary coarse:size-5"
             />
             Enabled
           </label>
@@ -163,7 +163,7 @@ export function ScheduleEditorPage() {
               type="button"
               onClick={() => setScheduleType("ONE_TIME")}
               className={cn(
-                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors coarse:py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 scheduleType === "ONE_TIME"
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:bg-muted",
@@ -175,7 +175,7 @@ export function ScheduleEditorPage() {
               type="button"
               onClick={() => setScheduleType("CRON")}
               className={cn(
-                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                "flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors coarse:py-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 scheduleType === "CRON"
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border text-muted-foreground hover:bg-muted",
@@ -217,7 +217,7 @@ export function ScheduleEditorPage() {
               id="schedule-timezone"
               value={timezone}
               onChange={(event) => setTimezone(event.target.value)}
-              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs"
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm shadow-xs coarse:h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {timezones.map((tz) => (
                 <option key={tz} value={tz}>

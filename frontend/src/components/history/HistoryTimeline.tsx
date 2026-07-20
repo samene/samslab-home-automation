@@ -89,15 +89,17 @@ export function HistoryTimeline({
               value={command.id}
               className="overflow-hidden rounded-2xl border border-border bg-card px-4 shadow-sm transition-shadow hover:shadow-md"
             >
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1">
                 {selectionMode ? (
-                  <input
-                    type="checkbox"
-                    aria-label={`Select ${command.command_type}`}
-                    className="size-4 shrink-0 rounded border-input accent-primary"
-                    checked={selectedIds.has(command.id)}
-                    onChange={() => onToggleSelect(command.id)}
-                  />
+                  <label className="flex size-11 shrink-0 cursor-pointer items-center justify-center">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select ${command.command_type}`}
+                      className="size-4 shrink-0 rounded border-input accent-primary coarse:size-5"
+                      checked={selectedIds.has(command.id)}
+                      onChange={() => onToggleSelect(command.id)}
+                    />
+                  </label>
                 ) : null}
                 <AccordionTrigger data-testid="history-row" className="flex-1">
                   <span className="flex min-w-0 flex-1 items-center gap-3">

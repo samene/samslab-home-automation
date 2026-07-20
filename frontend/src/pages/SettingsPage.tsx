@@ -44,8 +44,10 @@ export function SettingsPage() {
           <CardTitle>Appearance</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between">
-            <Label htmlFor="theme-toggle">Dark mode</Label>
+          <div className="flex items-center justify-between py-1">
+            <Label htmlFor="theme-toggle" className="cursor-pointer">
+              Dark mode
+            </Label>
             <Switch
               id="theme-toggle"
               checked={theme === "dark"}
@@ -102,9 +104,9 @@ export function SettingsPage() {
 
 function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex items-center justify-between text-sm">
+    <div className="flex flex-col gap-0.5 text-sm sm:flex-row sm:items-center sm:justify-between sm:gap-4">
       <span className="text-muted-foreground">{label}</span>
-      <span className="font-medium">{value}</span>
+      <span className="font-medium break-all sm:text-right">{value}</span>
     </div>
   );
 }

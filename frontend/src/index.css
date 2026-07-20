@@ -1,6 +1,16 @@
 @import "tailwindcss";
 
 @custom-variant dark (&:where(.dark, .dark *));
+/*
+ * Targets touch input specifically (a finger, not a mouse/trackpad) rather
+ * than a viewport-width breakpoint — a touch-capable laptop or a mouse
+ * plugged into a tablet shouldn't get bloated targets, and a small phone in
+ * a pointer-coarse-but-narrow state still needs them. Used to grow
+ * interactive elements to the ~44x44px minimum touch target size (Button,
+ * Input, icon-only controls) without bloating the same components for
+ * precise mouse input on desktop.
+ */
+@custom-variant coarse (@media (pointer: coarse));
 
 /*
  * Light is the default, premium "mission control" look (no toggle needed for
@@ -234,4 +244,18 @@ body {
     oklch(0.19 0.04 300)
   );
   background-size: 300% 300%;
+}
+
+/* Respect the OS-level "reduce motion" accessibility setting: keep every
+   animation's *end state* (opacity/position settle correctly) but skip the
+   motion itself, including the login page's otherwise-infinite gradient pan. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }

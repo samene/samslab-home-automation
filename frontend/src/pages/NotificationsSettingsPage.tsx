@@ -54,13 +54,14 @@ export function NotificationsSettingsPage() {
 
             <Separator className="my-1" />
 
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-xs text-muted-foreground">
                 Sends a Workflow Completed/Failed-style message right now — no workflow run required.
               </p>
               <Button
                 type="button"
                 size="sm"
+                className="w-full sm:w-auto"
                 disabled={sendTest.isPending}
                 onClick={() => sendTest.mutate()}
               >

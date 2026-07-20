@@ -54,7 +54,7 @@ export function VideoLightbox({ videoId, onOpenChange }: VideoLightboxProps) {
                 </video>
               </div>
 
-              <dl className="grid grid-cols-4 gap-3 text-sm">
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
                 <div>
                   <dt className="text-xs text-muted-foreground">Captured</dt>
                   <dd className="font-medium">{formatTimestamp(video.captured_at)}</dd>

@@ -74,12 +74,12 @@ export function LoginPage() {
               />
             </div>
 
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <label className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
               <input
                 type="checkbox"
                 checked={rememberMe}
                 onChange={(event) => setRememberMe(event.target.checked)}
-                className="size-4 rounded border-input accent-primary"
+                className="size-4 rounded border-input accent-primary coarse:size-5"
               />
               Remember me
             </label>

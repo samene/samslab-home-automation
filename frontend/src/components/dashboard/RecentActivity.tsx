@@ -70,7 +70,7 @@ export function RecentActivity({ commands, deviceNameById }: RecentActivityProps
       <button
         type="button"
         onClick={() => navigate("/history")}
-        className="mt-1 w-full rounded-lg py-2 text-center text-xs font-medium text-primary hover:bg-accent"
+        className="mt-1 w-full rounded-lg py-2 text-center text-xs font-medium text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         View all activity
       </button>

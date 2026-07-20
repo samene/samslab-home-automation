@@ -48,7 +48,7 @@ export function SnapshotLightbox({ snapshotId, onOpenChange }: SnapshotLightboxP
                 />
               </div>
 
-              <dl className="grid grid-cols-3 gap-3 text-sm">
+              <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                 <div>
                   <dt className="text-xs text-muted-foreground">Captured</dt>
                   <dd className="font-medium">{formatTimestamp(snapshot.captured_at)}</dd>

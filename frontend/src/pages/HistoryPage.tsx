@@ -109,8 +109,8 @@ export function HistoryPage() {
           <p className="text-sm text-muted-foreground">Every command ever sent, newest first.</p>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:flex-wrap">
+          <div className="relative flex-1 md:min-w-[12rem]">
             <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search by command or device…"
@@ -126,7 +126,7 @@ export function HistoryPage() {
               setStatusFilter(event.target.value as CommandStatus | "");
               resetToFirstPage();
             }}
-            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring coarse:h-11"
           >
             <option value="">All statuses</option>
             {STATUS_OPTIONS.map((option) => (
@@ -142,7 +142,7 @@ export function HistoryPage() {
               setDeviceFilter(event.target.value);
               resetToFirstPage();
             }}
-            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring coarse:h-11"
           >
             <option value="">All devices</option>
             {(devicesPage?.items ?? []).map((device) => (
@@ -165,11 +165,11 @@ export function HistoryPage() {
         </div>
 
         {selectionMode ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/50 px-4 py-2.5">
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/50 px-4 py-3">
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
-                className="size-4 rounded border-input accent-primary"
+                className="size-4 rounded border-input accent-primary coarse:size-5"
                 checked={allVisibleSelected}
                 onChange={toggleSelectAll}
               />

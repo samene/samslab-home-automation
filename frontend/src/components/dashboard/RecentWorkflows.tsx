@@ -36,7 +36,7 @@ export function RecentWorkflows() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-6 shrink-0"
+                className="size-6 shrink-0 coarse:size-9"
                 disabled={workflow.last_run_status === "RUNNING" || runWorkflow.isPending}
                 onClick={() => runWorkflow.mutate(workflow.id)}
                 aria-label={`Run ${workflow.name} now`}

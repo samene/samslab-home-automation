@@ -71,7 +71,7 @@ export function SavedMediaPage() {
           <select
             value={range}
             onChange={(event) => setRange(event.target.value as SavedMediaRange | "")}
-            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="h-10 rounded-xl border border-input bg-transparent px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring coarse:h-11"
           >
             {RANGE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -99,7 +99,7 @@ export function SavedMediaPage() {
                 {imageGroups.map((group) => (
                   <section key={group.label} className="flex flex-col gap-3">
                     <h2 className="text-sm font-semibold text-muted-foreground">{group.label}</h2>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                       {group.items.map((snapshot) => (
                         <SnapshotCard
                           key={snapshot.id}
@@ -127,7 +127,7 @@ export function SavedMediaPage() {
                 {videoGroups.map((group) => (
                   <section key={group.label} className="flex flex-col gap-3">
                     <h2 className="text-sm font-semibold text-muted-foreground">{group.label}</h2>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
                       {group.items.map((video) => (
                         <VideoCard
                           key={video.id}

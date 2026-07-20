@@ -9,7 +9,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { Logo } from "@/components/layout/Logo";
+import { LogoMark } from "@/components/layout/Logo";
+import { MobileNavDrawer } from "@/components/layout/MobileNavDrawer";
 import { useAuth } from "@/hooks/useAuth";
 import { useTheme } from "@/hooks/useTheme";
 
@@ -19,9 +20,11 @@ export function TopBar() {
   const toggleTheme = () => setTheme(theme === "dark" ? "light" : "dark");
 
   return (
-    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-card/60 px-4 backdrop-blur-sm sm:px-6">
-      <div className="flex items-center gap-3 sm:hidden">
-        <Logo />
+    <header className="flex h-14 shrink-0 items-center justify-between gap-4 border-b border-border bg-card/60 px-4 pt-[env(safe-area-inset-top)] backdrop-blur-sm sm:px-6">
+      {/* Below `md`, neither Sidebar variant renders — this is the only way in. */}
+      <div className="flex items-center gap-2 md:hidden">
+        <MobileNavDrawer />
+        <LogoMark className="size-8" />
       </div>
 
       <div className="flex flex-1 items-center justify-end gap-2">

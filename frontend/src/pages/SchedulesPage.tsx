@@ -52,7 +52,7 @@ export function SchedulesPage() {
   return (
     <div className="h-full overflow-y-auto p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col gap-5">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Schedules</h1>
             <p className="text-sm text-muted-foreground">
@@ -132,7 +132,7 @@ export function SchedulesPage() {
                   type="checkbox"
                   checked={deleteArtifacts}
                   onChange={(event) => setDeleteArtifacts(event.target.checked)}
-                  className="size-4 rounded border-input accent-primary"
+                  className="size-4 rounded border-input accent-primary coarse:size-5"
                 />
                 Also delete workflow executions, commands, and snapshots this schedule generated
               </label>

@@ -1,4 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Loader2 } from "lucide-react";
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AppShell } from "@/components/layout/AppShell";
@@ -6,15 +8,44 @@ import { ProtectedRoute } from "@/components/layout/ProtectedRoute";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DashboardPage } from "@/pages/DashboardPage";
-import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
-import { NotificationsSettingsPage } from "@/pages/NotificationsSettingsPage";
-import { ScheduleEditorPage } from "@/pages/ScheduleEditorPage";
-import { SchedulesPage } from "@/pages/SchedulesPage";
-import { SavedMediaPage } from "@/pages/SavedMediaPage";
-import { SettingsPage } from "@/pages/SettingsPage";
-import { WorkflowEditorPage } from "@/pages/WorkflowEditorPage";
-import { WorkflowsPage } from "@/pages/WorkflowsPage";
+
+// Dashboard and Login load eagerly (the landing page for authenticated and
+// unauthenticated users respectively) — every other route is code-split so
+// the initial bundle a phone downloads over a slow connection only pays for
+// the page it's about to render.
+const HistoryPage = lazy(() => import("@/pages/HistoryPage").then((m) => ({ default: m.HistoryPage })));
+const SavedMediaPage = lazy(() =>
+  import("@/pages/SavedMediaPage").then((m) => ({ default: m.SavedMediaPage })),
+);
+const WorkflowsPage = lazy(() =>
+  import("@/pages/WorkflowsPage").then((m) => ({ default: m.WorkflowsPage })),
+);
+const WorkflowEditorPage = lazy(() =>
+  import("@/pages/WorkflowEditorPage").then((m) => ({ default: m.WorkflowEditorPage })),
+);
+const SchedulesPage = lazy(() =>
+  import("@/pages/SchedulesPage").then((m) => ({ default: m.SchedulesPage })),
+);
+const ScheduleEditorPage = lazy(() =>
+  import("@/pages/ScheduleEditorPage").then((m) => ({ default: m.ScheduleEditorPage })),
+);
+const SettingsPage = lazy(() => import("@/pages/SettingsPage").then((m) => ({ default: m.SettingsPage })));
+const NotificationsSettingsPage = lazy(() =>
+  import("@/pages/NotificationsSettingsPage").then((m) => ({ default: m.NotificationsSettingsPage })),
+);
+
+function RouteFallback() {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+    </div>
+  );
+}
+
+function LazyPage({ children }: { children: React.ReactNode }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,7 +78,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <HistoryPage />
+                      <LazyPage>
+                        <HistoryPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -57,7 +90,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <SavedMediaPage />
+                      <LazyPage>
+                        <SavedMediaPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -67,7 +102,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <WorkflowsPage />
+                      <LazyPage>
+                        <WorkflowsPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -77,7 +114,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <WorkflowEditorPage />
+                      <LazyPage>
+                        <WorkflowEditorPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -87,7 +126,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <WorkflowEditorPage />
+                      <LazyPage>
+                        <WorkflowEditorPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -97,7 +138,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <SchedulesPage />
+                      <LazyPage>
+                        <SchedulesPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -107,7 +150,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <ScheduleEditorPage />
+                      <LazyPage>
+                        <ScheduleEditorPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -117,7 +162,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <ScheduleEditorPage />
+                      <LazyPage>
+                        <ScheduleEditorPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -127,7 +174,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <SettingsPage />
+                      <LazyPage>
+                        <SettingsPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }
@@ -137,7 +186,9 @@ export function App() {
                 element={
                   <ProtectedRoute>
                     <AppShell>
-                      <NotificationsSettingsPage />
+                      <LazyPage>
+                        <NotificationsSettingsPage />
+                      </LazyPage>
                     </AppShell>
                   </ProtectedRoute>
                 }

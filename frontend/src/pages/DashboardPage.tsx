@@ -59,9 +59,32 @@ export function DashboardPage() {
   }
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-hidden p-4 sm:p-6 lg:p-8">
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-4">
-        <div className="flex min-h-0 flex-col gap-3 lg:col-start-1">
+    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 sm:p-6 lg:overflow-hidden lg:p-8">
+      {/*
+        Mobile/tablet: a normal scrolling single (then two-) column page —
+        the dashboard's fixed-viewport, no-page-scroll "mission control"
+        density is a desktop-only affordance; forcing it below `lg` would
+        clip content with no way to reach it. Camera is always first in
+        source order (and `order-1` below `lg`) so it's the first thing
+        rendered regardless of viewport — "always the primary focus" — then
+        reflows to its original col-2/3 desktop position via `lg:col-start-2`
+        once there's room for the full 4-column layout.
+      */}
+      <div className="grid flex-1 grid-cols-1 gap-3 md:grid-cols-2 lg:min-h-0 lg:grid-cols-4 lg:overflow-hidden">
+        <div className="order-1 min-h-[55vh] sm:min-h-[60vh] md:order-1 md:col-span-2 md:min-h-[26rem] lg:order-none lg:col-span-2 lg:col-start-2 lg:row-start-1 lg:min-h-0">
+          <CameraPanel
+            hasDevice={Boolean(device)}
+            cameraStatus={cameraStatus}
+            isStarting={startCameraStream.isPending}
+            isStopping={stopCameraStream.isPending}
+            onGoLive={() => void handleGoLive()}
+            onStop={() => void handleStop()}
+            onTakeSnapshot={() => takeSnapshot.mutate()}
+            isTakingSnapshot={takeSnapshot.isPending}
+          />
+        </div>
+
+        <div className="order-2 flex min-h-0 flex-col gap-3 md:order-2 lg:order-none lg:col-start-1 lg:row-start-1">
           {isDeviceLoading ? (
             <Skeleton className="h-20 w-full shrink-0 rounded-2xl" />
           ) : (
@@ -77,20 +100,7 @@ export function DashboardPage() {
           <UpcomingSchedules />
         </div>
 
-        <div className="min-h-64 lg:col-span-2 lg:col-start-2 lg:min-h-0">
-          <CameraPanel
-            hasDevice={Boolean(device)}
-            cameraStatus={cameraStatus}
-            isStarting={startCameraStream.isPending}
-            isStopping={stopCameraStream.isPending}
-            onGoLive={() => void handleGoLive()}
-            onStop={() => void handleStop()}
-            onTakeSnapshot={() => takeSnapshot.mutate()}
-            isTakingSnapshot={takeSnapshot.isPending}
-          />
-        </div>
-
-        <div className="flex min-h-0 flex-col gap-3 lg:col-start-4">
+        <div className="order-3 flex min-h-0 flex-col gap-3 md:order-3 lg:order-none lg:col-start-4 lg:row-start-1">
           <Card className="min-h-0 flex-1 overflow-y-auto p-3">
             <h3 className="mb-1 px-1 text-xs font-semibold">Recent Commands</h3>
             {isCommandsLoading ? (
