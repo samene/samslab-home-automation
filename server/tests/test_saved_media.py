@@ -91,7 +91,7 @@ def media_kwargs(
         "bucket": "samslab-snapshots",
         "original_object_key": "originals/snapshot.jpg",
         "thumbnail_object_key": "thumbnails/snapshot.jpg",
-        "etag": "\"abc123\"",
+        "etag": '"abc123"',
         "sha256": "a" * 64,
         "width": 1920,
         "height": 1080,
@@ -240,7 +240,9 @@ async def test_repository_find_all_filters_by_captured_after(
     new_command = await _make_command(session, device.id)
     await repository.create(
         SavedMedia(
-            **media_kwargs(device_id=device.id, command_id=old_command.id, captured_at=now - timedelta(days=10))
+            **media_kwargs(
+                device_id=device.id, command_id=old_command.id, captured_at=now - timedelta(days=10)
+            )
         )
     )
     await repository.create(
@@ -274,6 +276,47 @@ async def test_repository_delete_hard_deletes_the_row(
     assert (await repository.find_by_id(created.id)) is None
     remaining = (await session.execute(select(SavedMedia))).scalars().all()
     assert created.id not in {row.id for row in remaining}
+
+
+async def test_repository_find_by_workflow_run_id_returns_oldest_created_first(
+    repository: SavedMediaRepository, session: AsyncSession, device: Device
+) -> None:
+    """Used by the Notification Framework's "first one if multiple" thumbnail tie-break."""
+    run_id, other_run_id = uuid4(), uuid4()
+    now = datetime.now(UTC)
+    first_command = await _make_command(session, device.id)
+    second_command = await _make_command(session, device.id)
+    other_run_command = await _make_command(session, device.id)
+
+    # Created out of chronological order on purpose, to prove the query
+    # sorts by created_at rather than returning insertion order.
+    second = await repository.create(
+        SavedMedia(
+            **media_kwargs(
+                device_id=device.id, command_id=second_command.id, workflow_run_id=run_id
+            ),
+            created_at=now,
+        )
+    )
+    first = await repository.create(
+        SavedMedia(
+            **media_kwargs(
+                device_id=device.id, command_id=first_command.id, workflow_run_id=run_id
+            ),
+            created_at=now - timedelta(minutes=5),
+        )
+    )
+    await repository.create(
+        SavedMedia(
+            **media_kwargs(
+                device_id=device.id, command_id=other_run_command.id, workflow_run_id=other_run_id
+            )
+        )
+    )
+
+    results = await repository.find_by_workflow_run_id(run_id)
+
+    assert [row.id for row in results] == [first.id, second.id]
 
 
 # --- Service -----------------------------------------------------------------
@@ -399,3 +442,18 @@ async def test_service_delete_media_raises_not_found_for_missing_id(
     """Deleting an unknown UUID raises the domain's not-found error."""
     with pytest.raises(SavedMediaNotFound):
         await service.delete_media(uuid4())
+
+
+@pytest.mark.asyncio
+async def test_service_find_by_workflow_run_id_delegates_to_the_repository(
+    service: SavedMediaService, session: AsyncSession, device: Device
+) -> None:
+    run_id = uuid4()
+    command = await _make_command(session, device.id)
+    recorded = await service.record_media(
+        **media_kwargs(device_id=device.id, command_id=command.id, workflow_run_id=run_id)
+    )
+
+    results = await service.find_by_workflow_run_id(run_id)
+
+    assert [row.id for row in results] == [recorded.id]

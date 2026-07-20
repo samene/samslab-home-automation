@@ -18,6 +18,7 @@ from app.api.camera import router as camera_router
 from app.api.dispatcher import router as dispatcher_router
 from app.api.health import router as health_router
 from app.api.mediamtx_jwks import router as mediamtx_jwks_router
+from app.api.notifications import router as notifications_router
 from app.application.exceptions import (
     ApplicationError,
     ApplicationValidationError,
@@ -299,6 +300,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "touches hardware directly."
                 ),
             },
+            {
+                "name": "Notifications",
+                "description": (
+                    "Provider status and a Send Test Notification action for the "
+                    "Settings page. The Workflow Engine notifies via events on "
+                    "the shared event bus, never through this REST surface."
+                ),
+            },
         ],
         lifespan=lifespan,
     )
@@ -322,6 +331,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(workflows_router)
     application.include_router(schedules_router)
     application.include_router(mediamtx_jwks_router)
+    application.include_router(notifications_router)
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(ApplicationError, application_exception_handler)

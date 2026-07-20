@@ -1,3 +1,5 @@
+import { Bell } from "lucide-react";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -68,19 +70,29 @@ export function SettingsPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Bell className="size-4" />
+            Notifications
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            Get notified by Telegram when a Workflow completes or fails.
+          </p>
+          <Button asChild variant="outline" className="w-fit">
+            <Link to="/settings/notifications">Manage Notifications</Link>
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Pump</CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <Field label="GPIO pin" value="PUMP_GPIO_PIN (default: 17)" />
           <Field label="Active high" value="PUMP_ACTIVE_HIGH (default: true)" />
           <Field label="Pulse duration" value="PUMP_TRIGGER_PULSE_MS (default: 200 ms)" />
-          <Separator className="my-1" />
-          <p className="text-sm text-muted-foreground">
-            This output is intended for timer relay triggering. The Raspberry Pi only
-            generates a short GPIO pulse — the timer relay it drives controls the actual
-            watering duration, not the Pi. These values are configured per-agent via
-            environment variables (see docs/agent/PUMP.md), not editable from this page.
-          </p>
         </CardContent>
       </Card>
     </div>

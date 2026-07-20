@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { useAuth } from "@/hooks/useAuth";
 import { useServiceInfo } from "@/hooks/useHealth";
@@ -13,6 +14,14 @@ vi.mock("@/hooks/useHealth");
 const mockedUseAuth = vi.mocked(useAuth);
 const mockedUseTheme = vi.mocked(useTheme);
 const mockedUseServiceInfo = vi.mocked(useServiceInfo);
+
+function renderSettingsPage() {
+  return render(
+    <MemoryRouter>
+      <SettingsPage />
+    </MemoryRouter>,
+  );
+}
 
 describe("SettingsPage", () => {
   it("shows the current user's profile and lets them log out", async () => {
@@ -36,7 +45,7 @@ describe("SettingsPage", () => {
     mockedUseServiceInfo.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useServiceInfo>);
 
     const user = userEvent.setup();
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(screen.getByText("sam")).toBeInTheDocument();
     expect(screen.getByText("sam@example.com")).toBeInTheDocument();
@@ -53,7 +62,7 @@ describe("SettingsPage", () => {
     mockedUseServiceInfo.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useServiceInfo>);
 
     const user = userEvent.setup();
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     await user.click(screen.getByRole("switch"));
     expect(setTheme).toHaveBeenCalledWith("light");
@@ -66,22 +75,32 @@ describe("SettingsPage", () => {
       data: { status: "ok", service: "samslab-cloud" },
     } as unknown as ReturnType<typeof useServiceInfo>);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(screen.getByText("ok")).toBeInTheDocument();
     expect(screen.getByText("samslab-cloud")).toBeInTheDocument();
   });
 
-  it("shows the pump's GPIO configuration and timer relay note", () => {
+  it("shows the pump's GPIO configuration", () => {
     mockedUseAuth.mockReturnValue({ status: "authenticated", user: null, login: vi.fn(), logout: vi.fn() });
     mockedUseTheme.mockReturnValue({ theme: "dark", setTheme: vi.fn() });
     mockedUseServiceInfo.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useServiceInfo>);
 
-    render(<SettingsPage />);
+    renderSettingsPage();
 
     expect(screen.getByText(/PUMP_GPIO_PIN/)).toBeInTheDocument();
     expect(screen.getByText(/PUMP_ACTIVE_HIGH/)).toBeInTheDocument();
     expect(screen.getByText(/PUMP_TRIGGER_PULSE_MS/)).toBeInTheDocument();
-    expect(screen.getByText(/intended for timer relay triggering/)).toBeInTheDocument();
+  });
+
+  it("links to the Notifications settings page", () => {
+    mockedUseAuth.mockReturnValue({ status: "authenticated", user: null, login: vi.fn(), logout: vi.fn() });
+    mockedUseTheme.mockReturnValue({ theme: "dark", setTheme: vi.fn() });
+    mockedUseServiceInfo.mockReturnValue({ data: undefined } as unknown as ReturnType<typeof useServiceInfo>);
+
+    renderSettingsPage();
+
+    const link = screen.getByRole("link", { name: /manage notifications/i });
+    expect(link).toHaveAttribute("href", "/settings/notifications");
   });
 });

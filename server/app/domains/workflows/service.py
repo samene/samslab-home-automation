@@ -140,6 +140,15 @@ class WorkflowService:
             return None, []
         return run, await self._repository.find_step_runs(run.id)
 
+    async def get_step_runs(self, run_id: UUID) -> list[WorkflowStepRun]:
+        """Return every step run for one workflow run directly, by run id.
+
+        A plain read, used by the Notification Framework to resolve which
+        step failed for a ``WorkflowFailed`` event — never called from
+        anywhere in the execution engine itself.
+        """
+        return await self._repository.find_step_runs(run_id)
+
     async def finish_run(
         self, run_id: UUID, *, status: WorkflowRunStatus, error_message: str | None = None
     ) -> WorkflowRun:
@@ -163,7 +172,9 @@ class WorkflowService:
             run_id, step_id, status=WorkflowStepRunStatus.RUNNING
         )
 
-    async def attach_command_to_step_run(self, step_run_id: UUID, command_id: UUID) -> WorkflowStepRun:
+    async def attach_command_to_step_run(
+        self, step_run_id: UUID, command_id: UUID
+    ) -> WorkflowStepRun:
         """Record which command a RUNNING Command Task step is waiting on."""
         step_run = await self._get_step_run(step_run_id)
         return await self._repository.update_step_run(

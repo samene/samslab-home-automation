@@ -31,6 +31,8 @@ class S3ClientProtocol(Protocol):
 
     def delete_object(self, **kwargs: Any) -> dict[str, Any]: ...
 
+    def get_object(self, **kwargs: Any) -> dict[str, Any]: ...
+
 
 class S3Client:
     """Generates presigned GET URLs and deletes objects for one S3 bucket."""
@@ -53,6 +55,20 @@ class S3Client:
     def delete_object(self, object_key: str) -> None:
         """Delete one object. A real network call — callers must run this in an executor."""
         self._client.delete_object(Bucket=self._bucket, Key=object_key)
+
+    def get_object_bytes(self, object_key: str) -> bytes:
+        """Fetch one object's raw bytes directly — no presigned URL minted or exposed anywhere.
+
+        Used by the Notification Framework to attach a workflow's snapshot
+        thumbnail to a Telegram message as an actual photo upload, rather
+        than a link a presigned URL would require (see
+        ``app.notifications.service.NotificationService``). A real network
+        call — callers must run this in an executor, same as
+        ``delete_object``.
+        """
+        response = self._client.get_object(Bucket=self._bucket, Key=object_key)
+        body: bytes = response["Body"].read()
+        return body
 
 
 def build_s3_client(settings: Settings) -> S3Client | None:

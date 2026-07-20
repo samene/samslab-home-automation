@@ -384,3 +384,23 @@ export interface ApiProblem {
   instance?: string;
   trace_id?: string;
 }
+
+export interface NotificationProviderStatusDTO {
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+  last_attempt_at: string | null;
+  last_success: boolean | null;
+  last_error: string | null;
+}
+
+export interface NotificationStatusDTO {
+  providers: NotificationProviderStatusDTO[];
+}
+
+export interface TestNotificationResultDTO {
+  provider: string;
+  success: boolean;
+  duration_ms: number;
+  error_message: string | null;
+}

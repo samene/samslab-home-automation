@@ -126,7 +126,10 @@ class ScheduleApplicationService:
             await session.commit()
         workflow_names = await self._resolve_workflow_names([s.workflow_id for s in schedules])
         return SchedulePageDTO(
-            items=[to_schedule_dto(s, workflow_name=workflow_names.get(s.workflow_id)) for s in schedules],
+            items=[
+                to_schedule_dto(s, workflow_name=workflow_names.get(s.workflow_id))
+                for s in schedules
+            ],
             total=total,
             offset=pagination.offset,
             limit=pagination.limit,
@@ -241,7 +244,9 @@ class ScheduleApplicationService:
             return
 
         try:
-            detail = await self._workflow_app_service.run_workflow(schedule.workflow_id)
+            detail = await self._workflow_app_service.run_workflow(
+                schedule.workflow_id, trigger_source="Schedule"
+            )
         except ApplicationError as error:
             await self._record_firing(
                 schedule_id,

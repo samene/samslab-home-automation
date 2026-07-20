@@ -64,6 +64,21 @@ class SavedMediaRepository:
         )
         return list(result.scalars())
 
+    async def find_by_workflow_run_id(self, workflow_run_id: UUID) -> list[SavedMedia]:
+        """Return every saved media row one specific workflow run produced, oldest first.
+
+        Oldest-first (rather than the newest-first convention ``find_all``
+        uses for a browsing list) matters to the Notification Framework's
+        "first one if multiple" tie-break for which thumbnail to attach —
+        see ``app.application.services.workflow_service``.
+        """
+        result = await self._session.execute(
+            select(SavedMedia)
+            .where(SavedMedia.workflow_run_id == workflow_run_id)
+            .order_by(SavedMedia.created_at)
+        )
+        return list(result.scalars())
+
     async def delete(self, media: SavedMedia) -> None:
         """Hard-delete a saved media row — a real S3 object is being removed, not archived."""
         await self._session.delete(media)

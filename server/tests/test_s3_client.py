@@ -10,13 +10,30 @@ from app.config.settings import Settings
 from app.core.s3_client import S3Client, S3ClientProtocol, build_s3_client
 
 
+class _FakeBody:
+    """Mimics boto3's StreamingBody: only ``.read()`` is ever called on it."""
+
+    def __init__(self, data: bytes) -> None:
+        self._data = data
+
+    def read(self) -> bytes:
+        return self._data
+
+
 class FakeS3Client:
     """A hand-rolled double for the small slice of boto3's S3 client S3Client calls."""
 
-    def __init__(self, *, presigned_url: str = "https://s3.example/signed") -> None:
+    def __init__(
+        self,
+        *,
+        presigned_url: str = "https://s3.example/signed",
+        object_bytes: bytes = b"fake-image-bytes",
+    ) -> None:
         self.presigned_url = presigned_url
+        self.object_bytes = object_bytes
         self.presign_calls: list[dict[str, Any]] = []
         self.delete_calls: list[dict[str, Any]] = []
+        self.get_calls: list[dict[str, Any]] = []
 
     def generate_presigned_url(
         self, client_method: str, *, Params: dict[str, Any], ExpiresIn: int
@@ -29,6 +46,10 @@ class FakeS3Client:
     def delete_object(self, **kwargs: Any) -> dict[str, Any]:
         self.delete_calls.append(kwargs)
         return {}
+
+    def get_object(self, **kwargs: Any) -> dict[str, Any]:
+        self.get_calls.append(kwargs)
+        return {"Body": _FakeBody(self.object_bytes)}
 
 
 def test_fake_client_satisfies_the_protocol() -> None:
@@ -72,6 +93,30 @@ def test_delete_object_calls_the_client_with_bucket_and_key() -> None:
     client.delete_object("thumbnails/snapshot.jpg")
 
     assert fake.delete_calls == [{"Bucket": "samslab-snapshots", "Key": "thumbnails/snapshot.jpg"}]
+
+
+def test_get_object_bytes_fetches_the_objects_raw_bytes() -> None:
+    """No presigned URL involved — a direct GetObject call scoped to this client's bucket."""
+    fake = FakeS3Client(object_bytes=b"\xff\xd8\xff\xe0jpeg-bytes")
+    client = S3Client(client=fake, bucket="samslab-snapshots")
+
+    result = client.get_object_bytes("thumbnails/snapshot.jpg")
+
+    assert result == b"\xff\xd8\xff\xe0jpeg-bytes"
+    assert fake.get_calls == [{"Bucket": "samslab-snapshots", "Key": "thumbnails/snapshot.jpg"}]
+
+
+def test_get_object_bytes_propagates_client_errors() -> None:
+    """A failing fetch is not swallowed here — the caller (NotificationService) handles that."""
+
+    class _FailingClient(FakeS3Client):
+        def get_object(self, **kwargs: Any) -> dict[str, Any]:
+            raise RuntimeError("network error")
+
+    client = S3Client(client=_FailingClient(), bucket="bucket")
+
+    with pytest.raises(RuntimeError, match="network error"):
+        client.get_object_bytes("key")
 
 
 def test_delete_object_propagates_client_errors() -> None:

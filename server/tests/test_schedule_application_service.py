@@ -70,6 +70,9 @@ class _FakeS3BotoClient:
         self.delete_calls.append(kwargs)
         return {}
 
+    def get_object(self, **kwargs: object) -> dict[str, object]:
+        raise NotImplementedError("not exercised by these tests")
+
 
 class _FakeScheduler:
     """A hand-rolled double for ``SchedulerPort`` — no real APScheduler involved."""
@@ -215,7 +218,11 @@ async def _create_snapshot_workflow(
     created = await workflow_app_service.create_workflow(
         WorkflowCreate(
             name=name,
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
     return created.id
@@ -397,7 +404,9 @@ async def test_delete_schedule_without_artifacts_keeps_generated_snapshot_and_ru
 
     async with database.session_factory() as session:
         media_rows = list((await session.execute(select(SavedMedia))).scalars())
-        runs = list((await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars())
+        runs = list(
+            (await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars()
+        )
     assert len(media_rows) == 1
     assert len(runs) == 1
 
@@ -426,11 +435,15 @@ async def test_delete_schedule_with_artifacts_removes_generated_snapshot_command
         media_rows, _ = await SavedMediaService(SavedMediaRepository(session)).list_media(
             device_id=None, media_type=None, captured_after=None, offset=0, limit=10
         )
-        runs = list((await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars())
+        runs = list(
+            (await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars()
+        )
         commands = list(
             (
                 await session.execute(
-                    select(Command).where(Command.correlation_id == run_id, Command.deleted_at.is_(None))
+                    select(Command).where(
+                        Command.correlation_id == run_id, Command.deleted_at.is_(None)
+                    )
                 )
             ).scalars()
         )
@@ -464,11 +477,15 @@ async def test_delete_schedule_with_artifacts_skips_a_non_terminal_command_witho
         commands = list(
             (
                 await session.execute(
-                    select(Command).where(Command.correlation_id == run_id, Command.deleted_at.is_(None))
+                    select(Command).where(
+                        Command.correlation_id == run_id, Command.deleted_at.is_(None)
+                    )
                 )
             ).scalars()
         )
-        runs = list((await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars())
+        runs = list(
+            (await session.execute(select(WorkflowRun).where(WorkflowRun.id == run_id))).scalars()
+        )
     # The non-terminal command survives (best-effort skip)...
     assert len(commands) == 1
     # ...but the WorkflowRun/StepRun rows are still removed regardless.

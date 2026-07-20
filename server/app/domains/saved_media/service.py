@@ -102,6 +102,10 @@ class SavedMediaService:
         """Return every saved media row a given workflow's runs have ever produced."""
         return await self._repository.find_by_workflow_id(workflow_id)
 
+    async def find_by_workflow_run_id(self, workflow_run_id: UUID) -> list[SavedMedia]:
+        """Return every saved media row one specific workflow run produced, oldest first."""
+        return await self._repository.find_by_workflow_run_id(workflow_run_id)
+
     async def delete_media(self, media_id: UUID) -> SavedMedia:
         """Hard-delete a saved media row, returning the deleted entity for S3 cleanup."""
         media = await self.get_media(media_id)

@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { DashboardPage } from "@/pages/DashboardPage";
 import { HistoryPage } from "@/pages/HistoryPage";
 import { LoginPage } from "@/pages/LoginPage";
+import { NotificationsSettingsPage } from "@/pages/NotificationsSettingsPage";
 import { ScheduleEditorPage } from "@/pages/ScheduleEditorPage";
 import { SchedulesPage } from "@/pages/SchedulesPage";
 import { SavedMediaPage } from "@/pages/SavedMediaPage";
@@ -127,6 +128,16 @@ export function App() {
                   <ProtectedRoute>
                     <AppShell>
                       <SettingsPage />
+                    </AppShell>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/notifications"
+                element={
+                  <ProtectedRoute>
+                    <AppShell>
+                      <NotificationsSettingsPage />
                     </AppShell>
                   </ProtectedRoute>
                 }

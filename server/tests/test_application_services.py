@@ -607,6 +607,9 @@ class FakeBotoClient:
         self.delete_calls.append(kwargs)
         return {}
 
+    def get_object(self, **kwargs: Any) -> dict[str, Any]:
+        raise NotImplementedError("not exercised by these tests")
+
 
 @pytest.fixture
 async def seeded_media(session: AsyncSession) -> SavedMedia:
@@ -819,9 +822,7 @@ async def test_saved_media_service_get_media_resolves_workflow_name_when_present
     workflow_service = WorkflowService(WorkflowRepository(session))
     workflow = await workflow_service.register_workflow(WorkflowCreate(name="Nightly patrol"))
     second_command = await CommandRepository(session).create(
-        Command(
-            device_id=seeded_media.device_id, command_type="camera.snapshot", payload={}
-        )
+        Command(device_id=seeded_media.device_id, command_type="camera.snapshot", payload={})
     )
     await SavedMediaService(SavedMediaRepository(session)).record_media(
         media_type=MediaType.IMAGE,

@@ -202,6 +202,37 @@ class Settings(BaseSettings):
     scheduler_shutdown_wait_seconds: float = Field(
         default=30.0, gt=0, validation_alias="SCHEDULER_SHUTDOWN_WAIT_SECONDS"
     )
+    # Notification Framework (see app/notifications/) — Telegram is the only
+    # implemented provider for V1. Like every other third-party credential in
+    # this class (AWS, MediaMTX), these are env/`.env`-configured, never
+    # accepted from the frontend or stored in the database; the Settings page
+    # only ever displays their current (masked) status and a working
+    # Test Notification action. `telegram_enabled` is a separate switch from
+    # "bot_token and chat_id are both set", so an operator can temporarily
+    # silence notifications without unsetting real credentials.
+    telegram_enabled: bool = Field(default=False, validation_alias="TELEGRAM_ENABLED")
+    telegram_bot_token: SecretStr | None = Field(
+        default=None, validation_alias="TELEGRAM_BOT_TOKEN"
+    )
+    telegram_chat_id: str | None = Field(default=None, validation_alias="TELEGRAM_CHAT_ID")
+    telegram_api_base_url: str = Field(
+        default="https://api.telegram.org", validation_alias="TELEGRAM_API_BASE_URL"
+    )
+    telegram_timeout_seconds: float = Field(
+        default=10.0, gt=0, validation_alias="TELEGRAM_TIMEOUT_SECONDS"
+    )
+    telegram_max_retries: int = Field(default=2, ge=0, validation_alias="TELEGRAM_MAX_RETRIES")
+    telegram_retry_backoff_seconds: float = Field(
+        default=1.0, gt=0, validation_alias="TELEGRAM_RETRY_BACKOFF_SECONDS"
+    )
+
+    @field_validator("telegram_bot_token", "telegram_chat_id", mode="before")
+    @classmethod
+    def parse_telegram_optional(cls, value: Any) -> Any:
+        """Treat an empty value as "unset" for these optional Telegram fields."""
+        if value == "":
+            return None
+        return value
 
     @field_validator("log_level")
     @classmethod

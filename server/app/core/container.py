@@ -11,6 +11,10 @@ from app.core.database import Database
 from app.core.mediamtx_jwt import build_mediamtx_jwt_signer
 from app.core.s3_client import build_s3_client
 from app.dispatcher.dispatcher import CommandDispatcher
+from app.notifications.config import build_telegram_config
+from app.notifications.dispatcher import register_notification_subscribers
+from app.notifications.providers.telegram import TelegramProvider
+from app.notifications.service import NotificationService
 from app.scheduler.scheduler import WorkflowScheduler
 from app.websocket.manager import SessionManager
 
@@ -39,6 +43,17 @@ class ApplicationContainer(containers.DeclarativeContainer):
         session_manager=session_manager,
     )
     scheduler = providers.Singleton(WorkflowScheduler, database=database)
+    telegram_config = providers.Singleton(build_telegram_config, settings=settings)
+    telegram_provider = providers.Singleton(TelegramProvider, config=telegram_config)
+    # A plain list today (Telegram only) — a future provider (Slack/Discord/
+    # Push) is added here, never a change to NotificationService itself.
+    notification_providers = providers.List(telegram_provider)
+    notification_service = providers.Singleton(
+        NotificationService,
+        database=database,
+        providers=notification_providers,
+        s3_client=s3_client,
+    )
 
 
 def build_container(settings: Settings) -> ApplicationContainer:
@@ -47,4 +62,5 @@ def build_container(settings: Settings) -> ApplicationContainer:
     database = Database(database_url) if database_url else None
     container = ApplicationContainer(settings=settings, database=database)
     register_logging_subscriber(container.event_bus())
+    register_notification_subscribers(container.event_bus(), container.notification_service)
     return container

@@ -13,6 +13,7 @@ from app.domains.devices import models as devices_models  # noqa: F401
 from app.domains.saved_media import models as saved_media_models  # noqa: F401
 from app.domains.schedules import models as schedules_models  # noqa: F401
 from app.domains.workflows import models as workflows_models  # noqa: F401
+from app.notifications import models as notifications_models  # noqa: F401
 
 config = context.config
 if config.config_file_name is not None:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import time
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -32,11 +33,13 @@ from app.application.services.workflow_run_registry import WorkflowRunRegistry
 from app.application.services.workflow_service import WorkflowApplicationService
 from app.core.database import Database
 from app.core.s3_client import S3Client
+from app.domains.commands.models import Command
 from app.domains.commands.repository import CommandRepository
 from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
 from app.domains.devices.schemas import DeviceCreate
 from app.domains.devices.service import DeviceService
+from app.domains.saved_media.models import MediaType
 from app.domains.saved_media.repository import SavedMediaRepository
 from app.domains.saved_media.service import SavedMediaService
 from app.domains.workflows.models import (
@@ -46,6 +49,7 @@ from app.domains.workflows.models import (
     WorkflowStepType,
 )
 from app.domains.workflows.schemas import WorkflowCreate, WorkflowStepCreate, WorkflowUpdate
+from app.notifications.events import WorkflowCompleted, WorkflowFailed
 
 # A realistic camera.snapshot command result (mirrors test_camera.py's own
 # SNAPSHOT_RESULT) — record_snapshot_from_command needs these exact keys to
@@ -146,7 +150,9 @@ async def _complete_pending_commands(
             await session.commit()
         if completed >= count:
             return
-    raise AssertionError(f"only {completed}/{count} pending {command_type} commands appeared in time")
+    raise AssertionError(
+        f"only {completed}/{count} pending {command_type} commands appeared in time"
+    )
 
 
 async def _wait_for_run_terminal(
@@ -168,7 +174,9 @@ async def test_run_workflow_executes_command_then_sleep_serially(
         WorkflowCreate(
             name="Snapshot then wait",
             steps=[
-                WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"),
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                ),
                 WorkflowStepCreate(step_type=WorkflowStepType.SLEEP, sleep_seconds=1),
             ],
         )
@@ -206,7 +214,11 @@ async def test_run_workflow_camera_snapshot_step_persists_a_linked_snapshot(
     created = await workflow_app_service.create_workflow(
         WorkflowCreate(
             name="Nightly snapshot",
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
 
@@ -244,8 +256,12 @@ async def test_run_workflow_parallel_group_waits_for_all_children(
                     step_type=WorkflowStepType.GROUP,
                     group_mode=WorkflowGroupMode.PARALLEL,
                     children=[
-                        WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"),
-                        WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"),
+                        WorkflowStepCreate(
+                            step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                        ),
+                        WorkflowStepCreate(
+                            step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"
+                        ),
                     ],
                 )
             ],
@@ -275,7 +291,9 @@ async def test_run_workflow_fails_the_run_when_a_command_fails(
         WorkflowCreate(
             name="Doomed",
             steps=[
-                WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"),
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                ),
                 WorkflowStepCreate(step_type=WorkflowStepType.SLEEP, sleep_seconds=5),
             ],
         )
@@ -295,6 +313,265 @@ async def test_run_workflow_fails_the_run_when_a_command_fails(
     assert detail.latest_run.step_runs[0].status == WorkflowStepRunStatus.FAILED
     # The sleep step never started because the run aborts on first failure.
     assert detail.latest_run.step_runs[1].status == WorkflowStepRunStatus.PENDING
+
+
+async def test_run_workflow_publishes_a_workflow_completed_notification_event(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    device: DeviceDTO,
+    event_bus: EventBus,
+) -> None:
+    """The Workflow Engine's one integration point with the Notification Framework.
+
+    Subscribes a plain probe to the same event bus the application service
+    was built with — proving ``_finish_run`` actually publishes
+    ``WorkflowCompleted`` with the right data, without needing a real
+    Telegram provider or NotificationService at all.
+    """
+    published: list[WorkflowCompleted] = []
+    event_bus.subscribe(WorkflowCompleted, published.append)
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Morning Garden",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
+        )
+    )
+    started = await workflow_app_service.run_workflow(created.id)
+    run_id = started.latest_run.id if started.latest_run else None
+    assert run_id is not None
+
+    await asyncio.gather(
+        _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0),
+        _complete_pending_commands(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT),
+    )
+
+    assert len(published) == 1
+    event = published[0]
+    assert event.workflow_id == created.id
+    assert event.workflow_name == "Morning Garden"
+    assert event.execution_id == run_id
+    assert event.status == "COMPLETED"
+    assert event.trigger_source == "Manual"
+    assert event.duration_seconds >= 0.0
+    assert event.completed_at >= event.started_at
+    assert event.thumbnail_object_key == SNAPSHOT_RESULT["thumbnail_object_key"]
+
+
+async def test_run_workflow_completed_event_has_no_thumbnail_when_no_media_was_generated(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    event_bus: EventBus,
+) -> None:
+    published: list[WorkflowCompleted] = []
+    event_bus.subscribe(WorkflowCompleted, published.append)
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="No Media Here",
+            steps=[WorkflowStepCreate(step_type=WorkflowStepType.SLEEP, sleep_seconds=1)],
+        )
+    )
+    await workflow_app_service.run_workflow(created.id)
+    await _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0)
+
+    assert len(published) == 1
+    assert published[0].thumbnail_object_key is None
+
+
+async def test_run_workflow_completed_event_prefers_the_first_snapshot_when_two_steps_produce_media(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    device: DeviceDTO,
+    event_bus: EventBus,
+) -> None:
+    """ "first one if multiple" — the earlier-completed step's thumbnail wins."""
+    published: list[WorkflowCompleted] = []
+    event_bus.subscribe(WorkflowCompleted, published.append)
+    second_snapshot_result = {
+        **SNAPSHOT_RESULT,
+        "filename": "snapshot-2.jpg",
+        "original_object_key": "originals/snapshot-2.jpg",
+        "thumbnail_object_key": "thumbnails/snapshot-2.jpg",
+        "sha256": "b" * 64,
+    }
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Two Snapshots",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                ),
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                ),
+            ],
+        )
+    )
+    await workflow_app_service.run_workflow(created.id)
+
+    # The two camera.snapshot steps run serially, so completing all pending
+    # commands of that type one poll cycle at a time (rather than both at
+    # once) is what makes the *first* step's result the one persisted first.
+    await _complete_pending_commands(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT)
+    await _complete_pending_commands(
+        database, device.id, "camera.snapshot", result=second_snapshot_result
+    )
+    await _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0)
+
+    assert len(published) == 1
+    assert published[0].thumbnail_object_key == SNAPSHOT_RESULT["thumbnail_object_key"]
+
+
+async def test_resolve_thumbnail_object_key_prefers_a_snapshot_over_a_video(
+    workflow_app_service: WorkflowApplicationService, database: Database, device: DeviceDTO
+) -> None:
+    """Video thumbnail generation isn't implemented yet (SavedMedia.thumbnail_object_key
+    is always None for MediaType.VIDEO in the real pipeline — see that model's
+    docstring), so this exercises the preference rule directly against
+    manually seeded rows rather than through a real camera.record.stop
+    result, the only way to prove "snapshot beats video" today.
+    """
+    run_id = uuid4()
+    async with database.session_factory() as session:
+        media_service = SavedMediaService(SavedMediaRepository(session))
+        video_command = await CommandRepository(session).create(
+            Command(device_id=device.id, command_type="camera.record.stop", payload={})
+        )
+        image_command = await CommandRepository(session).create(
+            Command(device_id=device.id, command_type="camera.snapshot", payload={})
+        )
+        now = datetime.now(UTC)
+        # Created *after* the image row, to prove type-preference beats
+        # simple creation-order rather than coincidentally matching it.
+        await media_service.record_media(
+            media_type=MediaType.VIDEO,
+            device_id=device.id,
+            command_id=video_command.id,
+            filename="recording.mp4",
+            bucket="samslab-media",
+            original_object_key="originals/recording.mp4",
+            thumbnail_object_key="thumbnails/recording.jpg",
+            etag=None,
+            sha256="c" * 64,
+            width=1920,
+            height=1080,
+            size=1_000_000,
+            captured_at=now,
+            workflow_run_id=run_id,
+        )
+        await media_service.record_media(
+            media_type=MediaType.IMAGE,
+            device_id=device.id,
+            command_id=image_command.id,
+            filename="snapshot.jpg",
+            bucket="samslab-media",
+            original_object_key="originals/snapshot.jpg",
+            thumbnail_object_key="thumbnails/snapshot.jpg",
+            etag=None,
+            sha256="d" * 64,
+            width=1920,
+            height=1080,
+            size=204800,
+            captured_at=now,
+            workflow_run_id=run_id,
+        )
+        await session.commit()
+
+        thumbnail_object_key = await workflow_app_service._resolve_thumbnail_object_key(  # noqa: SLF001
+            session, run_id
+        )
+
+    assert thumbnail_object_key == "thumbnails/snapshot.jpg"
+
+
+async def test_run_workflow_publishes_a_workflow_failed_notification_event(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    device: DeviceDTO,
+    event_bus: EventBus,
+) -> None:
+    published: list[WorkflowFailed] = []
+    event_bus.subscribe(WorkflowFailed, published.append)
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Doomed Garden",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
+        )
+    )
+    # Exercises trigger_source end-to-end too — schedule_service.py passes
+    # this exact keyword from its own execute_schedule.
+    await workflow_app_service.run_workflow(created.id, trigger_source="Schedule")
+
+    await asyncio.gather(
+        _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0),
+        _complete_pending_commands(
+            database, device.id, "camera.snapshot", error_message="camera not detected"
+        ),
+    )
+
+    assert len(published) == 1
+    event = published[0]
+    assert event.workflow_name == "Doomed Garden"
+    assert event.status == "FAILED"
+    assert event.trigger_source == "Schedule"
+    # The run-level error is _wait_for_terminal's own wrapper message, not
+    # the command's original error text — matches the existing
+    # test_run_workflow_fails_the_run_when_a_command_fails, which asserts
+    # the same thing indirectly by never checking the run's error_message.
+    assert "ended in status FAILED" in event.error_message
+    assert event.failed_step == "camera.snapshot"
+
+
+async def test_run_workflow_completes_even_if_a_notification_subscriber_raises(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    device: DeviceDTO,
+    event_bus: EventBus,
+) -> None:
+    """The other half of "notification failures must never affect workflow execution".
+
+    ``test_notifications_service.py`` proves ``NotificationService`` itself
+    never raises; this proves the second, independent safety net in
+    ``WorkflowApplicationService._publish_notification_event`` — a
+    completely broken subscriber (not just a broken provider) still can't
+    stop the run from reaching its terminal, persisted status.
+    """
+
+    def _explode(_event: WorkflowCompleted) -> None:
+        raise RuntimeError("a notification subscriber blew up")
+
+    event_bus.subscribe(WorkflowCompleted, _explode)
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Resilient Garden",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
+        )
+    )
+    await workflow_app_service.run_workflow(created.id)
+
+    detail, _ = await asyncio.gather(
+        _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0),
+        _complete_pending_commands(database, device.id, "camera.snapshot", result=SNAPSHOT_RESULT),
+    )
+
+    assert detail.latest_run is not None
+    assert detail.latest_run.status == WorkflowRunStatus.COMPLETED
 
 
 async def test_run_workflow_raises_when_disabled(
@@ -340,8 +617,12 @@ async def test_parallel_group_cancels_the_sibling_of_a_failed_command(
                     step_type=WorkflowStepType.GROUP,
                     group_mode=WorkflowGroupMode.PARALLEL,
                     children=[
-                        WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"),
-                        WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"),
+                        WorkflowStepCreate(
+                            step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                        ),
+                        WorkflowStepCreate(
+                            step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"
+                        ),
                     ],
                 )
             ],
@@ -392,10 +673,12 @@ async def test_run_workflow_executes_a_nested_parallel_group_inside_a_serial_gro
                             group_mode=WorkflowGroupMode.PARALLEL,
                             children=[
                                 WorkflowStepCreate(
-                                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                                    step_type=WorkflowStepType.COMMAND,
+                                    command_type="camera.snapshot",
                                 ),
                                 WorkflowStepCreate(
-                                    step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"
+                                    step_type=WorkflowStepType.COMMAND,
+                                    command_type="camera.stream.start",
                                 ),
                             ],
                         )
@@ -423,7 +706,9 @@ async def test_run_workflow_executes_a_nested_parallel_group_inside_a_serial_gro
     inner_group_run = outer_group_run.children[0]
     assert inner_group_run.status == WorkflowStepRunStatus.COMPLETED
     assert len(inner_group_run.children) == 2
-    assert all(child.status == WorkflowStepRunStatus.COMPLETED for child in inner_group_run.children)
+    assert all(
+        child.status == WorkflowStepRunStatus.COMPLETED for child in inner_group_run.children
+    )
 
 
 # --- C. Timeout path ---------------------------------------------------------
@@ -443,7 +728,11 @@ async def test_run_workflow_fails_when_a_command_never_completes_within_the_time
     created = await fast_timeout_service.create_workflow(
         WorkflowCreate(
             name="Never answers",
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
 
@@ -475,7 +764,11 @@ async def test_run_workflow_fails_the_run_when_no_device_is_registered(
     created = await workflow_app_service.create_workflow(
         WorkflowCreate(
             name="Nobody home",
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
 
@@ -612,6 +905,9 @@ class _FakeS3BotoClient:
         self.delete_calls.append(kwargs)
         return {}
 
+    def get_object(self, **kwargs: object) -> dict[str, object]:
+        raise NotImplementedError("not exercised by these tests")
+
 
 async def test_delete_workflow_with_delete_artifacts_removes_generated_snapshots(
     database: Database, event_bus: EventBus, device: DeviceDTO
@@ -628,7 +924,11 @@ async def test_delete_workflow_with_delete_artifacts_removes_generated_snapshots
     created = await service.create_workflow(
         WorkflowCreate(
             name="Snapshot maker",
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
     await service.run_workflow(created.id)
@@ -658,7 +958,11 @@ async def test_delete_workflow_without_delete_artifacts_keeps_generated_snapshot
     created = await workflow_app_service.create_workflow(
         WorkflowCreate(
             name="Snapshot maker",
-            steps=[WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot")],
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                )
+            ],
         )
     )
     await workflow_app_service.run_workflow(created.id)
