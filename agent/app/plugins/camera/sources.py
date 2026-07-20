@@ -115,11 +115,15 @@ class Picamera2FrameSource:
             ) from error
 
         picam2 = Picamera2()
-        # "BGR888" matches ffmpeg's configured "-pix_fmt bgr24" input; if
-        # captured colors look swapped on your camera, try "RGB888" instead —
-        # picamera2's format naming is a known source of confusion.
+        # picamera2/libcamera name formats by in-memory byte order, which is
+        # the *inverse* of how most other stacks (including ffmpeg's
+        # "-pix_fmt bgr24") name them: requesting "RGB888" here actually
+        # yields BGR-ordered bytes on the wire, and "BGR888" yields RGB. Using
+        # "BGR888" therefore fed ffmpeg's bgr24 input RGB-ordered bytes,
+        # silently swapping red and blue (e.g. a blue shirt rendered orange).
+        # "RGB888" is the correct request to match ffmpeg's bgr24 input.
         config = picam2.create_video_configuration(
-            main={"size": (self._width, self._height), "format": "BGR888"},
+            main={"size": (self._width, self._height), "format": "RGB888"},
             controls={"FrameRate": self._fps},
         )
         picam2.configure(config)
