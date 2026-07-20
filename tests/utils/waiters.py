@@ -137,9 +137,7 @@ async def wait_for_message(
     """
 
     async def _has_message() -> bool:
-        return any(
-            envelope.message_type is message_type for envelope in agent.received[since:]
-        )
+        return any(envelope.message_type is message_type for envelope in agent.received[since:])
 
     await wait_until(
         _has_message, timeout=timeout, description=f"a {message_type} message to arrive"

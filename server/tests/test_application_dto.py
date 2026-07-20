@@ -215,7 +215,7 @@ def _build_media(**overrides: object) -> SavedMedia:
         "bucket": "samslab-snapshots",
         "original_object_key": "originals/snapshot.jpg",
         "thumbnail_object_key": "thumbnails/snapshot.jpg",
-        "etag": "\"abc123\"",
+        "etag": '"abc123"',
         "sha256": "a" * 64,
         "width": 1920,
         "height": 1080,
@@ -295,12 +295,18 @@ def test_to_step_tree_rebuilds_nesting_from_a_flat_list() -> None:
     """A GROUP step's children are reassembled purely from parent_step_id, not an ORM relationship."""
     workflow_id = uuid4()
     root_command = _step(
-        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.COMMAND,
-        command_type="camera.snapshot", sleep_seconds=None,
+        workflow_id=workflow_id,
+        position=0,
+        step_type=WorkflowStepType.COMMAND,
+        command_type="camera.snapshot",
+        sleep_seconds=None,
     )
     group = _step(
-        workflow_id=workflow_id, position=1, step_type=WorkflowStepType.GROUP,
-        sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+        workflow_id=workflow_id,
+        position=1,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.PARALLEL,
     )
     child_a = _step(workflow_id=workflow_id, parent_step_id=group.id, position=0)
     child_b = _step(workflow_id=workflow_id, parent_step_id=group.id, position=1)
@@ -316,12 +322,19 @@ def test_workflow_step_dto_recursive_round_trip() -> None:
     """The first self-referential Pydantic model in this codebase: verify it actually round-trips."""
     workflow_id = uuid4()
     group = _step(
-        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.GROUP,
-        sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+        workflow_id=workflow_id,
+        position=0,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.SERIAL,
     )
     nested_group = _step(
-        workflow_id=workflow_id, parent_step_id=group.id, position=0,
-        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+        workflow_id=workflow_id,
+        parent_step_id=group.id,
+        position=0,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.PARALLEL,
     )
     leaf_a = _step(workflow_id=workflow_id, parent_step_id=nested_group.id, position=0)
     leaf_b = _step(workflow_id=workflow_id, parent_step_id=nested_group.id, position=1)
@@ -344,20 +357,35 @@ def test_workflow_step_dto_round_trip_handles_a_deeper_branching_tree() -> None:
     """
     workflow_id = uuid4()
     root_group = _step(
-        workflow_id=workflow_id, position=0, step_type=WorkflowStepType.GROUP,
-        sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+        workflow_id=workflow_id,
+        position=0,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.SERIAL,
     )
     sibling_leaf = _step(
-        workflow_id=workflow_id, parent_step_id=root_group.id, position=0,
-        step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot", sleep_seconds=None,
+        workflow_id=workflow_id,
+        parent_step_id=root_group.id,
+        position=0,
+        step_type=WorkflowStepType.COMMAND,
+        command_type="camera.snapshot",
+        sleep_seconds=None,
     )
     mid_group = _step(
-        workflow_id=workflow_id, parent_step_id=root_group.id, position=1,
-        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.PARALLEL,
+        workflow_id=workflow_id,
+        parent_step_id=root_group.id,
+        position=1,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.PARALLEL,
     )
     inner_group = _step(
-        workflow_id=workflow_id, parent_step_id=mid_group.id, position=0,
-        step_type=WorkflowStepType.GROUP, sleep_seconds=None, group_mode=WorkflowGroupMode.SERIAL,
+        workflow_id=workflow_id,
+        parent_step_id=mid_group.id,
+        position=0,
+        step_type=WorkflowStepType.GROUP,
+        sleep_seconds=None,
+        group_mode=WorkflowGroupMode.SERIAL,
     )
     leaf_a = _step(workflow_id=workflow_id, parent_step_id=inner_group.id, position=0)
     leaf_b = _step(workflow_id=workflow_id, parent_step_id=inner_group.id, position=1)
@@ -387,7 +415,9 @@ def test_to_workflow_run_dto_fills_pending_placeholders_for_unstarted_steps() ->
         completed_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     run = WorkflowRun(
-        id=run_id, workflow_id=workflow_id, status=WorkflowRunStatus.RUNNING,
+        id=run_id,
+        workflow_id=workflow_id,
+        status=WorkflowRunStatus.RUNNING,
         started_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
@@ -402,15 +432,24 @@ def test_to_workflow_run_dto_fills_pending_placeholders_for_unstarted_steps() ->
 def test_to_workflow_detail_dto_embeds_the_latest_run() -> None:
     workflow_id = uuid4()
     workflow = Workflow(
-        id=workflow_id, name="Nightly", description=None, enabled=True, run_count=1,
-        last_run_at=datetime(2026, 1, 1, tzinfo=UTC), last_run_status=WorkflowRunStatus.COMPLETED,
-        last_run_duration_ms=1200, created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        id=workflow_id,
+        name="Nightly",
+        description=None,
+        enabled=True,
+        run_count=1,
+        last_run_at=datetime(2026, 1, 1, tzinfo=UTC),
+        last_run_status=WorkflowRunStatus.COMPLETED,
+        last_run_duration_ms=1200,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
     step = _step(workflow_id=workflow_id, position=0)
     run = WorkflowRun(
-        id=uuid4(), workflow_id=workflow_id, status=WorkflowRunStatus.COMPLETED,
-        started_at=datetime(2026, 1, 1, tzinfo=UTC), completed_at=datetime(2026, 1, 1, tzinfo=UTC),
+        id=uuid4(),
+        workflow_id=workflow_id,
+        status=WorkflowRunStatus.COMPLETED,
+        started_at=datetime(2026, 1, 1, tzinfo=UTC),
+        completed_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
     dto = to_workflow_detail_dto(workflow, [step], latest_run=run, latest_run_step_runs=[])
@@ -423,9 +462,16 @@ def test_to_workflow_detail_dto_embeds_the_latest_run() -> None:
 
 def test_to_workflow_detail_dto_latest_run_is_none_when_never_run() -> None:
     workflow = Workflow(
-        id=uuid4(), name="Never run", description=None, enabled=True, run_count=0,
-        last_run_at=None, last_run_status=None, last_run_duration_ms=None,
-        created_at=datetime(2026, 1, 1, tzinfo=UTC), updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+        id=uuid4(),
+        name="Never run",
+        description=None,
+        enabled=True,
+        run_count=0,
+        last_run_at=None,
+        last_run_status=None,
+        last_run_duration_ms=None,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
     dto = to_workflow_detail_dto(workflow, [], latest_run=None, latest_run_step_runs=[])
@@ -436,9 +482,15 @@ def test_to_workflow_detail_dto_latest_run_is_none_when_never_run() -> None:
 
 def test_to_workflow_dto_maps_denormalized_fields() -> None:
     workflow = Workflow(
-        id=uuid4(), name="Backup", description="desc", enabled=False, run_count=3,
-        last_run_at=datetime(2026, 1, 1, tzinfo=UTC), last_run_status=WorkflowRunStatus.FAILED,
-        last_run_duration_ms=500, created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        id=uuid4(),
+        name="Backup",
+        description="desc",
+        enabled=False,
+        run_count=3,
+        last_run_at=datetime(2026, 1, 1, tzinfo=UTC),
+        last_run_status=WorkflowRunStatus.FAILED,
+        last_run_duration_ms=500,
+        created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 

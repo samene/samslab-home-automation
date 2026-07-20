@@ -76,8 +76,7 @@ async def test_command_appears_in_dispatcher_running_while_awaiting_result(
     async def _running() -> bool:
         running = await server.dispatcher_running(admin_token)
         return any(
-            item["command_id"] == str(command_id) and item["phase"] == "running"
-            for item in running
+            item["command_id"] == str(command_id) and item["phase"] == "running" for item in running
         )
 
     await wait_until(_running, description="command to appear in dispatcher running list")

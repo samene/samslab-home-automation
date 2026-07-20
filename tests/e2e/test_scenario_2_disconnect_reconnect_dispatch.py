@@ -21,9 +21,7 @@ async def test_command_created_offline_dispatches_once_the_agent_reconnects(
     await wait_for_device_status(server, device_id, "OFFLINE")
 
     # Create command while nothing is connected.
-    command_id = await server.create_command(
-        device_id, "system.ping", payload={}, priority="HIGH"
-    )
+    command_id = await server.create_command(device_id, "system.ping", payload={}, priority="HIGH")
     pending = await server.get_command(command_id)
     assert pending["status"] == "PENDING"
 

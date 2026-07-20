@@ -21,7 +21,7 @@ def test_validate_timezone_accepts_a_known_iana_name() -> None:
 
 
 def test_validate_timezone_accepts_a_legacy_iana_alias() -> None:
-    """"Asia/Calcutta" (superseded by "Asia/Kolkata") is what browsers still return from
+    """ "Asia/Calcutta" (superseded by "Asia/Kolkata") is what browsers still return from
     Intl.supportedValuesOf("timeZone") in some cases, so the frontend's timezone dropdown
     can offer it — the backend must resolve it too, not just the modern canonical name.
     This requires the tzdata PyPI package: a minimal container's system tzdata often
@@ -74,7 +74,9 @@ def test_build_trigger_returns_a_date_trigger_for_one_time_schedules() -> None:
 
 def test_build_trigger_raises_when_cron_expression_is_missing_for_a_cron_schedule() -> None:
     with pytest.raises(ValueError, match="cron_expression is required"):
-        build_trigger(schedule_type=ScheduleType.CRON, cron_expression=None, run_at=None, timezone="UTC")
+        build_trigger(
+            schedule_type=ScheduleType.CRON, cron_expression=None, run_at=None, timezone="UTC"
+        )
 
 
 def test_build_trigger_raises_when_run_at_is_missing_for_a_one_time_schedule() -> None:

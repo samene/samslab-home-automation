@@ -126,7 +126,9 @@ class ScheduleRepository:
         )
         return list(result.scalars())
 
-    async def find_all_executions(self, *, offset: int, limit: int) -> tuple[list[ScheduleExecution], int]:
+    async def find_all_executions(
+        self, *, offset: int, limit: int
+    ) -> tuple[list[ScheduleExecution], int]:
         """List every schedule firing across all schedules, newest first — backs History correlation."""
         count = await self._session.scalar(select(func.count(ScheduleExecution.id)))
         result = await self._session.execute(

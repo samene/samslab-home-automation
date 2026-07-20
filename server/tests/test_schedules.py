@@ -107,9 +107,7 @@ async def test_get_schedule_raises_not_found_for_missing_id(service: ScheduleSer
         await service.get_schedule(uuid4())
 
 
-async def test_update_schedule_replaces_fields(
-    service: ScheduleService, workflow_id: UUID
-) -> None:
+async def test_update_schedule_replaces_fields(service: ScheduleService, workflow_id: UUID) -> None:
     created = await service.register_schedule(_cron_request(workflow_id=workflow_id))
     updated = await service.update_schedule(
         created.id,

@@ -59,16 +59,22 @@ def _with_parallel_group() -> WorkflowCreate:
     return WorkflowCreate(
         name="Multi-camera burst",
         steps=[
-            WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"),
+            WorkflowStepCreate(
+                step_type=WorkflowStepType.COMMAND, command_type="camera.stream.start"
+            ),
             WorkflowStepCreate(
                 step_type=WorkflowStepType.GROUP,
                 group_mode="PARALLEL",
                 children=[
-                    WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"),
+                    WorkflowStepCreate(
+                        step_type=WorkflowStepType.COMMAND, command_type="camera.snapshot"
+                    ),
                     WorkflowStepCreate(step_type=WorkflowStepType.SLEEP, sleep_seconds=2),
                 ],
             ),
-            WorkflowStepCreate(step_type=WorkflowStepType.COMMAND, command_type="camera.stream.stop"),
+            WorkflowStepCreate(
+                step_type=WorkflowStepType.COMMAND, command_type="camera.stream.stop"
+            ),
         ],
     )
 

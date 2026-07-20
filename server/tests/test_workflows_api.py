@@ -88,7 +88,9 @@ async def test_api_lists_workflows_with_pagination(database: Database) -> None:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
         for index in range(3):
-            created = await client.post("/workflows", json=_create_payload(name=f"Workflow {index}"))
+            created = await client.post(
+                "/workflows", json=_create_payload(name=f"Workflow {index}")
+            )
             assert created.status_code == 201
 
         response = await client.get("/workflows", params={"offset": 0, "limit": 2})

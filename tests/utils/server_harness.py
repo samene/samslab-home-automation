@@ -102,7 +102,11 @@ class ServerHarness:
         return result
 
     def issue_device_token(
-        self, device_id: UUID, *, expires_in: timedelta | None = None, roles: list[str] | None = None
+        self,
+        device_id: UUID,
+        *,
+        expires_in: timedelta | None = None,
+        roles: list[str] | None = None,
     ) -> str:
         """Issue a real, signed device (agent) JWT — the same shape the Auth domain issues."""
         roles = roles or ["Agent"]
@@ -206,9 +210,7 @@ class ServerHarness:
 
     async def dispatcher_status(self, admin_token: str) -> dict[str, Any]:
         """The dispatcher's own run-state snapshot (``GET /dispatcher/status``)."""
-        response = await self.http.get(
-            "/dispatcher/status", headers=self.auth_headers(admin_token)
-        )
+        response = await self.http.get("/dispatcher/status", headers=self.auth_headers(admin_token))
         response.raise_for_status()
         result: dict[str, Any] = response.json()
         return result

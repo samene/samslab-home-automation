@@ -69,10 +69,11 @@ async def test_duplicate_results_are_only_applied_once(server: ServerHarness) ->
     async def _still_completed() -> bool:
         current = await server.get_command(command_id)
         return bool(
-            current["status"] == "COMPLETED"
-            and current["completed_at"] == final["completed_at"]
+            current["status"] == "COMPLETED" and current["completed_at"] == final["completed_at"]
         )
 
-    await wait_until(_still_completed, timeout=1.0, description="the duplicate result to be dropped")
+    await wait_until(
+        _still_completed, timeout=1.0, description="the duplicate result to be dropped"
+    )
 
     await agent.disconnect()

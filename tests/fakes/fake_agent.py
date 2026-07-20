@@ -258,7 +258,9 @@ class FakeAgent:
                 Envelope(
                     protocol_version=envelope.protocol_version,
                     message_type=MessageType.COMMAND_ACK,
-                    payload=CommandAckPayload(command_id=payload.command_id).model_dump(mode="json"),
+                    payload=CommandAckPayload(command_id=payload.command_id).model_dump(
+                        mode="json"
+                    ),
                 )
             )
 

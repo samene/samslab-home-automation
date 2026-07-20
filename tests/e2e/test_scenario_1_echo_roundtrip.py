@@ -32,9 +32,12 @@ async def test_agent_connects_echo_completes_db_metrics_and_logs_all_verify(
 
             metrics_before = await server.metrics_text()
             dispatched_before = metric_value(metrics_before, "commands_dispatched_total") or 0.0
-            results_before = metric_value(
-                metrics_before, "messages_received_total", message_type="COMMAND_RESULT"
-            ) or 0.0
+            results_before = (
+                metric_value(
+                    metrics_before, "messages_received_total", message_type="COMMAND_RESULT"
+                )
+                or 0.0
+            )
 
             # Create system.echo.
             command_id = await server.create_command(

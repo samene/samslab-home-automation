@@ -152,7 +152,9 @@ class WorkflowScheduler:
         try:
             await self._on_fire(schedule_id)
         except Exception as error:
-            logger.warning("scheduler_on_fire_failed", schedule_id=str(schedule_id), error=str(error))
+            logger.warning(
+                "scheduler_on_fire_failed", schedule_id=str(schedule_id), error=str(error)
+            )
         finally:
             self._refresh_next_run_metric()
 

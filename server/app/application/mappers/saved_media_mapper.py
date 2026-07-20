@@ -56,7 +56,9 @@ def to_camera_snapshot_dto(media: SavedMedia) -> CameraSnapshotDTO:
     )
 
 
-def to_camera_recording_dto(media: SavedMedia, *, upload_duration_seconds: float) -> CameraRecordingDTO:
+def to_camera_recording_dto(
+    media: SavedMedia, *, upload_duration_seconds: float
+) -> CameraRecordingDTO:
     """Map a persisted VIDEO row to the metadata-only DTO ``POST /camera/record/stop`` returns."""
     assert media.duration is not None  # always set for a VIDEO row
     return CameraRecordingDTO(

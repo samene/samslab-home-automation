@@ -50,9 +50,13 @@ async def record_media_from_command(
             workflow_id = run.workflow_id
         service = SavedMediaService(SavedMediaRepository(session))
         if command_type == _IMAGE_COMMAND_TYPE:
-            media = await _record_image(service, device_id, command_id, result, workflow_id, workflow_run_id)
+            media = await _record_image(
+                service, device_id, command_id, result, workflow_id, workflow_run_id
+            )
         else:
-            media = await _record_video(service, device_id, command_id, result, workflow_id, workflow_run_id)
+            media = await _record_video(
+                service, device_id, command_id, result, workflow_id, workflow_run_id
+            )
         await session.commit()
         return media
 
@@ -114,7 +118,9 @@ async def _record_video(
         bitrate=int(result["bitrate"]) if result.get("bitrate") is not None else None,
         size=int(result["file_size"]),
         captured_at=_parse_timestamp(result.get("recorded_at")) or datetime.now(UTC),
-        metadata={"upload_duration_seconds": upload_duration} if upload_duration is not None else None,
+        metadata={"upload_duration_seconds": upload_duration}
+        if upload_duration is not None
+        else None,
         workflow_id=workflow_id,
         workflow_run_id=workflow_run_id,
     )

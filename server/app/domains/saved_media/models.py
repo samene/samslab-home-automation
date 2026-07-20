@@ -50,9 +50,7 @@ class SavedMedia(Base):
         Enum(MediaType, native_enum=False, length=20), index=True
     )
     device_id: Mapped[UUID] = mapped_column(ForeignKey("devices.id"), index=True)
-    command_id: Mapped[UUID] = mapped_column(
-        ForeignKey("commands.id"), unique=True, index=True
-    )
+    command_id: Mapped[UUID] = mapped_column(ForeignKey("commands.id"), unique=True, index=True)
     filename: Mapped[str] = mapped_column(String(255))
     bucket: Mapped[str] = mapped_column(String(255))
     original_object_key: Mapped[str] = mapped_column(String(1024))
@@ -69,9 +67,7 @@ class SavedMedia(Base):
     bitrate: Mapped[int | None] = mapped_column(Integer, nullable=True)
     size: Mapped[int] = mapped_column(Integer)
     captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     metadata_: Mapped[dict[str, Any]] = mapped_column("metadata", json_type, default=dict)
     workflow_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("workflows.id"), nullable=True, index=True

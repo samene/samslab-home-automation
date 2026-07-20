@@ -75,4 +75,6 @@ async def test_dispatcher_statistics_reflect_the_full_batch(server: ServerHarnes
 
     after = await server.dispatcher_statistics(admin_token)
     total_commands = AGENT_COUNT * COMMANDS_PER_AGENT
-    assert after["commands_dispatched_total"] >= before["commands_dispatched_total"] + total_commands
+    assert (
+        after["commands_dispatched_total"] >= before["commands_dispatched_total"] + total_commands
+    )

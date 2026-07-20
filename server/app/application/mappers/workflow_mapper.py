@@ -41,7 +41,9 @@ def to_workflow_dto(workflow: Workflow) -> WorkflowDTO:
     )
 
 
-def to_step_tree(steps: list[WorkflowStep], *, parent_step_id: UUID | None = None) -> list[WorkflowStepDTO]:
+def to_step_tree(
+    steps: list[WorkflowStep], *, parent_step_id: UUID | None = None
+) -> list[WorkflowStepDTO]:
     """Rebuild the nested step tree from a flat, workflow-scoped list of rows."""
     children = sorted(
         (step for step in steps if step.parent_step_id == parent_step_id), key=lambda s: s.position
