@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   useBulkDeleteCommands,
+  useCancelCommand,
   useCommand,
   useCommands,
   useDeleteCommand,
@@ -20,6 +21,7 @@ const mockedUseDevices = vi.mocked(useDevices);
 const mockedUseCommands = vi.mocked(useCommands);
 const mockedUseCommand = vi.mocked(useCommand);
 const mockedUseDeleteCommand = vi.mocked(useDeleteCommand);
+const mockedUseCancelCommand = vi.mocked(useCancelCommand);
 const mockedUseBulkDeleteCommands = vi.mocked(useBulkDeleteCommands);
 const mockedUseScheduleExecutions = vi.mocked(useScheduleExecutions);
 
@@ -74,6 +76,10 @@ describe("HistoryPage", () => {
       mutateAsync: vi.fn().mockResolvedValue(undefined),
       isPending: false,
     } as unknown as ReturnType<typeof useDeleteCommand>);
+    mockedUseCancelCommand.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue(undefined),
+      isPending: false,
+    } as unknown as ReturnType<typeof useCancelCommand>);
     mockedUseScheduleExecutions.mockReturnValue({
       data: { items: [], total: 0, offset: 0, limit: 100 },
     } as unknown as ReturnType<typeof useScheduleExecutions>);

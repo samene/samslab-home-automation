@@ -39,6 +39,8 @@ from app.core.problems import (
 )
 from app.domains.auth.api import router as auth_router
 from app.domains.commands.api import router as commands_router
+from app.domains.commands.repository import CommandRepository
+from app.domains.commands.service import CommandService
 from app.domains.devices.api import router as devices_router
 from app.domains.saved_media.api import router as saved_media_router
 from app.domains.schedules.api import router as schedules_router
@@ -75,6 +77,23 @@ async def _reconcile_interrupted_workflow_runs(database: Database) -> None:
         await session.commit()
     if reconciled_count:
         logger.warning("workflow_runs_reconciled", count=reconciled_count)
+
+
+async def _reconcile_interrupted_commands(database: Database) -> None:
+    """Fail any command left DISPATCHED or RUNNING by a previous process's crash/restart.
+
+    The dispatcher's in-memory ack/execution-timeout trackers do not
+    survive the process, even though the DB row does — without this, such
+    a command would show DISPATCHED/RUNNING forever and could never reach
+    a terminal state (so it could never be deleted from History either).
+    """
+    logger = structlog.get_logger("app.lifecycle")
+    async with database.session_factory() as session:
+        service = CommandService(CommandRepository(session))
+        reconciled_count = await service.reconcile_interrupted_commands()
+        await session.commit()
+    if reconciled_count:
+        logger.warning("commands_reconciled", count=reconciled_count)
 
 
 def _build_schedule_on_fire(app: FastAPI) -> Callable[[UUID], Awaitable[None]]:
@@ -128,6 +147,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     database = app.state.container.database()
     if database is not None:
         await _reconcile_interrupted_workflow_runs(database)
+        await _reconcile_interrupted_commands(database)
     dispatcher = app.state.container.dispatcher()
     await dispatcher.start()
     scheduler = app.state.container.scheduler()

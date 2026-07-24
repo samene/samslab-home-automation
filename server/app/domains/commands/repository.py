@@ -122,6 +122,16 @@ class CommandRepository:
         )
         return list(result.scalars().unique()), count or 0
 
+    async def find_interrupted(self) -> list[Command]:
+        """Return every command left DISPATCHED or RUNNING by a previous process's crash/restart."""
+        result = await self._session.execute(
+            select(Command).where(
+                Command.status.in_((CommandStatus.DISPATCHED, CommandStatus.RUNNING)),
+                Command.deleted_at.is_(None),
+            )
+        )
+        return list(result.scalars().unique())
+
     async def find_expirable(self, as_of: datetime) -> list[Command]:
         """Return every non-terminal command whose expiration window has passed."""
         result = await self._session.execute(

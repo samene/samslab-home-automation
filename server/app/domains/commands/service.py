@@ -257,6 +257,23 @@ class CommandService:
         )
         return command
 
+    async def reconcile_interrupted_commands(self) -> int:
+        """Fail every command left DISPATCHED or RUNNING at startup — no tracker survives a restart.
+
+        The dispatcher's ack-timeout and execution-timeout windows
+        (``app/dispatcher/ack_manager.py``, ``timeouts.py``) live only in
+        that process's memory; a crash or restart loses them, and neither
+        the dispatcher's own discovery (which only looks for PENDING/
+        QUEUED) nor ``expire_old_commands`` (which only helps a command
+        with an explicit ``expires_at``) would ever revisit the command.
+        Called once from the application lifespan, before the dispatcher
+        starts, mirroring ``WorkflowService.reconcile_interrupted_runs()``.
+        """
+        interrupted = await self._repository.find_interrupted()
+        for command in interrupted:
+            await self.fail_command(command.id, error_message="interrupted by server restart")
+        return len(interrupted)
+
     async def expire_old_commands(self, *, now: datetime | None = None) -> int:
         """Sweep past-expiration commands to EXPIRED (or TIMEOUT if already running)."""
         as_of = now or datetime.now(UTC)

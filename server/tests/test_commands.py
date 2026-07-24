@@ -292,6 +292,26 @@ async def test_repository_find_expirable_excludes_terminal_and_future(
 
 
 @pytest.mark.asyncio
+async def test_repository_find_interrupted_only_dispatched_and_running(
+    repository: CommandRepository, device: Device
+) -> None:
+    """Only DISPATCHED/RUNNING commands are interrupted; other statuses are not."""
+    dispatched = await repository.create(Command(device_id=device.id, command_type="pump.start"))
+    await repository.update_status(dispatched, status=CommandStatus.DISPATCHED)
+    running = await repository.create(Command(device_id=device.id, command_type="pump.start"))
+    await repository.update_status(running, status=CommandStatus.RUNNING)
+    pending = await repository.create(Command(device_id=device.id, command_type="pump.start"))
+    completed = await repository.create(Command(device_id=device.id, command_type="pump.start"))
+    await repository.update_status(completed, status=CommandStatus.COMPLETED)
+
+    interrupted = await repository.find_interrupted()
+    interrupted_ids = {command.id for command in interrupted}
+    assert interrupted_ids == {dispatched.id, running.id}
+    assert pending.id not in interrupted_ids
+    assert completed.id not in interrupted_ids
+
+
+@pytest.mark.asyncio
 async def test_repository_update_status_sets_started_and_completed(
     repository: CommandRepository, device: Device
 ) -> None:
@@ -578,6 +598,38 @@ async def test_service_expire_old_commands_marks_pending_expired_and_running_tim
     assert expired_running.status is CommandStatus.TIMEOUT
     assert expired_pending.events[-1].event_type.value == "COMMAND_EXPIRED"
     assert expired_running.events[-1].event_type.value == "COMMAND_TIMEOUT"
+
+
+@pytest.mark.asyncio
+async def test_service_reconcile_interrupted_commands_fails_dispatched_and_running(
+    service: CommandService, device: Device
+) -> None:
+    """A restart-orphaned DISPATCHED/RUNNING command is failed, not left stuck forever."""
+    dispatched = await service.create_command(
+        CommandCreate.model_validate(command_payload(device.id))
+    )
+    await service.mark_dispatched(dispatched.id)
+
+    running = await service.create_command(CommandCreate.model_validate(command_payload(device.id)))
+    await service.mark_dispatched(running.id)
+    await service.mark_running(running.id)
+
+    pending = await service.create_command(CommandCreate.model_validate(command_payload(device.id)))
+
+    reconciled_count = await service.reconcile_interrupted_commands()
+    assert reconciled_count == 2
+
+    reconciled_dispatched = await service.get_command(dispatched.id)
+    reconciled_running = await service.get_command(running.id)
+    still_pending = await service.get_command(pending.id)
+    assert reconciled_dispatched.status is CommandStatus.FAILED
+    assert reconciled_dispatched.result is not None
+    assert reconciled_dispatched.result.error_message == "interrupted by server restart"
+    assert reconciled_running.status is CommandStatus.FAILED
+    assert still_pending.status is CommandStatus.PENDING
+
+    # The now-terminal commands can be deleted from History; the still-in-flight one cannot.
+    await service.delete_command(dispatched.id)
 
 
 # --- Validation ------------------------------------------------------------------

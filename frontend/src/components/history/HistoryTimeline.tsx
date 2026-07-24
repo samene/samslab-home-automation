@@ -1,4 +1,4 @@
-import { Camera, Droplets, Radio, Trash2 } from "lucide-react";
+import { Ban, Camera, Droplets, Radio, Trash2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useState } from "react";
 import {
@@ -11,11 +11,23 @@ import { Button } from "@/components/ui/button";
 import { CommandStatusBadge } from "@/components/shared/StatusBadge";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
+import { useCancelCommand, useCommand, useDeleteCommand } from "@/hooks/useCommands";
 import { useScheduleExecutions } from "@/hooks/useSchedules";
 import { formatDuration, formatTimestamp, friendlyCommandLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { CommandDTO } from "@/types/api";
+import type { CommandDTO, CommandStatus } from "@/types/api";
+
+/** Mirrors the server's `TERMINAL_STATUSES` (server/app/domains/commands/models.py) —
+ * only a command in one of these can be deleted; anything else must be
+ * cancelled first.
+ */
+const TERMINAL_STATUSES = new Set<CommandStatus>([
+  "COMPLETED",
+  "FAILED",
+  "CANCELLED",
+  "EXPIRED",
+  "TIMEOUT",
+]);
 
 /** Builds a workflow_run_id -> schedule_name lookup from every recorded firing.
  *
@@ -62,7 +74,9 @@ export function HistoryTimeline({
   onToggleSelect,
 }: HistoryTimelineProps) {
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [pendingCancelId, setPendingCancelId] = useState<string | null>(null);
   const deleteCommand = useDeleteCommand();
+  const cancelCommand = useCancelCommand();
   const scheduleNameByRunId = useScheduleNameByRunId();
 
   if (commands.length === 0) {
@@ -70,11 +84,18 @@ export function HistoryTimeline({
   }
 
   const pendingDeleteCommand = commands.find((command) => command.id === pendingDeleteId);
+  const pendingCancelCommand = commands.find((command) => command.id === pendingCancelId);
 
   async function handleConfirmDelete() {
     if (!pendingDeleteId) return;
     await deleteCommand.mutateAsync(pendingDeleteId);
     setPendingDeleteId(null);
+  }
+
+  async function handleConfirmCancel() {
+    if (!pendingCancelId) return;
+    await cancelCommand.mutateAsync({ commandId: pendingCancelId });
+    setPendingCancelId(null);
   }
 
   return (
@@ -125,6 +146,7 @@ export function HistoryTimeline({
                   commandId={command.id}
                   scheduleName={scheduleName}
                   onRequestDelete={() => setPendingDeleteId(command.id)}
+                  onRequestCancel={() => setPendingCancelId(command.id)}
                 />
               </AccordionContent>
             </AccordionItem>
@@ -146,6 +168,21 @@ export function HistoryTimeline({
         isConfirming={deleteCommand.isPending}
         onConfirm={() => void handleConfirmDelete()}
       />
+
+      <ConfirmDialog
+        open={pendingCancelId !== null}
+        onOpenChange={(open) => !open && setPendingCancelId(null)}
+        title="Cancel this command?"
+        description={
+          pendingCancelCommand
+            ? `Stop "${pendingCancelCommand.command_type}" from running further. It can be deleted from history afterward.`
+            : ""
+        }
+        confirmLabel="Cancel Command"
+        variant="destructive"
+        isConfirming={cancelCommand.isPending}
+        onConfirm={() => void handleConfirmCancel()}
+      />
     </>
   );
 }
@@ -154,10 +191,12 @@ function HistoryCardDetail({
   commandId,
   scheduleName,
   onRequestDelete,
+  onRequestCancel,
 }: {
   commandId: string;
   scheduleName: string | undefined;
   onRequestDelete: () => void;
+  onRequestCancel: () => void;
 }) {
   const { data: command, isLoading } = useCommand(commandId);
 
@@ -203,16 +242,29 @@ function HistoryCardDetail({
       ) : null}
 
       <div className="flex justify-end">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={onRequestDelete}
-        >
-          <Trash2 className="size-3.5" />
-          Delete
-        </Button>
+        {TERMINAL_STATUSES.has(command.status) ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={onRequestDelete}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </Button>
+        ) : (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={onRequestCancel}
+          >
+            <Ban className="size-3.5" />
+            Cancel
+          </Button>
+        )}
       </div>
     </div>
   );

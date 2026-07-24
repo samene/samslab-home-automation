@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useCommand, useDeleteCommand } from "@/hooks/useCommands";
+import { useCancelCommand, useCommand, useDeleteCommand } from "@/hooks/useCommands";
 import { useScheduleExecutions } from "@/hooks/useSchedules";
 import type { CommandDTO } from "@/types/api";
 import { HistoryTimeline } from "./HistoryTimeline";
@@ -11,6 +11,7 @@ vi.mock("@/hooks/useSchedules");
 
 const mockedUseCommand = vi.mocked(useCommand);
 const mockedUseDeleteCommand = vi.mocked(useDeleteCommand);
+const mockedUseCancelCommand = vi.mocked(useCancelCommand);
 const mockedUseScheduleExecutions = vi.mocked(useScheduleExecutions);
 
 function makeCommand(overrides: Partial<CommandDTO> = {}): CommandDTO {
@@ -56,6 +57,10 @@ describe("HistoryTimeline", () => {
       mutateAsync: vi.fn().mockResolvedValue(undefined),
       isPending: false,
     } as unknown as ReturnType<typeof useDeleteCommand>);
+    mockedUseCancelCommand.mockReturnValue({
+      mutateAsync: vi.fn().mockResolvedValue(undefined),
+      isPending: false,
+    } as unknown as ReturnType<typeof useCancelCommand>);
     mockedUseScheduleExecutions.mockReturnValue({
       data: { items: [], total: 0, offset: 0, limit: 100 },
     } as unknown as ReturnType<typeof useScheduleExecutions>);
@@ -164,6 +169,32 @@ describe("HistoryTimeline", () => {
     await user.click(within(dialog).getByRole("button", { name: /^delete$/i }));
 
     expect(mutateAsync).toHaveBeenCalledWith("cmd-1");
+  });
+
+  it("shows Cancel instead of Delete for a non-terminal command, and cancels it after confirming", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mockedUseCancelCommand.mockReturnValue({
+      mutateAsync,
+      isPending: false,
+    } as unknown as ReturnType<typeof useCancelCommand>);
+    mockedUseCommand.mockReturnValue({
+      data: { ...makeCommand({ status: "DISPATCHED", completed_at: null }), events: [] },
+      isLoading: false,
+    } as unknown as ReturnType<typeof useCommand>);
+
+    const user = userEvent.setup();
+    renderTimeline({ commands: [makeCommand({ status: "DISPATCHED", completed_at: null })] });
+
+    await user.click(screen.getByTestId("history-row"));
+    expect(screen.queryByRole("button", { name: /^delete$/i })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: /^cancel$/i }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText("Cancel this command?")).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: /^cancel command$/i }));
+
+    expect(mutateAsync).toHaveBeenCalledWith({ commandId: "cmd-1" });
   });
 
   it("shows no checkbox when selection mode is off", () => {
