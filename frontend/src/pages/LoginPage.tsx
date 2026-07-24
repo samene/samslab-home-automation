@@ -55,6 +55,7 @@ export function LoginPage() {
               <Input
                 id="username"
                 autoComplete="username"
+                autoFocus
                 className="h-11 rounded-xl"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
