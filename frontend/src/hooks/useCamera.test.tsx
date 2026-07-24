@@ -97,6 +97,23 @@ describe("useStopCameraStream", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(toast.success).toHaveBeenCalledWith("Camera stream stopped");
   });
+
+  it("clears the cached camera status instead of leaving stale running:true data behind", async () => {
+    vi.mocked(cameraApi.stopCameraStream).mockResolvedValue(STOP_RESULT);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient.setQueryData(["camera", "status"], STATUS);
+    const sharedWrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    );
+
+    const { result } = renderHook(() => useStopCameraStream(), { wrapper: sharedWrapper });
+    result.current.mutate();
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // A dangling stale "running: true" here is exactly what let CameraPanel
+    // keep trying to play a stream that had already stopped server-side.
+    expect(queryClient.getQueryData(["camera", "status"])).toBeUndefined();
+  });
 });
 
 describe("useTakeSnapshot", () => {

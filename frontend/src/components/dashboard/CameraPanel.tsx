@@ -1,4 +1,4 @@
-import { Camera, Maximize2, Signal, SignalLow, Square, TriangleAlert, Video } from "lucide-react";
+import { Camera, Loader2, Maximize2, Signal, SignalLow, Square, TriangleAlert, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -206,6 +206,7 @@ export function CameraPanel({
   const { data: polledStatus, isError } = useCameraStatus({ enabled: cameraStatus?.running === true });
   const videoRef = useRef<HTMLVideoElement>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [hasFirstFrame, setHasFirstFrame] = useState(false);
 
   const status = polledStatus ?? cameraStatus;
   const isActive = status?.running === true;
@@ -217,8 +218,15 @@ export function CameraPanel({
     status?.playback_token,
   );
 
+  // Reset whenever a fresh connection attempt starts, so the spinner comes
+  // back for a new stream instead of showing stale "connected" chrome from a
+  // previous Go Live.
   useEffect(() => {
-    if (!isActive || !startedAtMs) {
+    setHasFirstFrame(false);
+  }, [isActive, status?.playback_url]);
+
+  useEffect(() => {
+    if (!isActive || !startedAtMs || !hasFirstFrame) {
       setElapsedSeconds(0);
       return;
     }
@@ -226,7 +234,7 @@ export function CameraPanel({
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [isActive, startedAtMs]);
+  }, [isActive, startedAtMs, hasFirstFrame]);
 
   function handleFullscreen() {
     const container = videoRef.current?.parentElement as WebkitFullscreenElement | null;
@@ -255,6 +263,7 @@ export function CameraPanel({
               autoPlay
               muted
               playsInline
+              onLoadedData={() => setHasFirstFrame(true)}
               className="size-full object-contain"
             />
             {playbackFailed ? (
@@ -265,6 +274,14 @@ export function CameraPanel({
                   The stream may still be starting, or your browser couldn't connect. Try Stop
                   Streaming and Go Live again.
                 </p>
+              </div>
+            ) : !hasFirstFrame ? (
+              <div
+                className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/80 text-white"
+                data-testid="camera-connecting"
+              >
+                <Loader2 className="size-8 animate-spin" />
+                <p className="text-sm font-medium">Connecting to camera…</p>
               </div>
             ) : (
               <>

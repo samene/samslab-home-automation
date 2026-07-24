@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useCameraStatus } from "@/hooks/useCamera";
@@ -173,7 +173,15 @@ describe("CameraPanel", () => {
       />,
     );
 
+    // The LIVE badge is held back behind a "Connecting…" spinner until the
+    // video element actually has a decoded frame.
+    expect(screen.queryByText("LIVE")).not.toBeInTheDocument();
+    expect(screen.getByTestId("camera-connecting")).toBeInTheDocument();
+
+    fireEvent.loadedData(document.querySelector("video") as HTMLVideoElement);
     expect(screen.getByText("LIVE")).toBeInTheDocument();
+    expect(screen.queryByTestId("camera-connecting")).not.toBeInTheDocument();
+
     await user.click(screen.getByRole("button", { name: /stop streaming/i }));
     expect(onStop).toHaveBeenCalledOnce();
   });

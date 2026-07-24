@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -210,6 +210,11 @@ describe("DashboardPage", () => {
     await user.click(screen.getByRole("button", { name: /go live/i }));
 
     expect(startMutateAsync).toHaveBeenCalledOnce();
+    // The LIVE badge is held back behind a "Connecting…" spinner until the
+    // video element reports a decoded frame — jsdom won't do that on its
+    // own, so simulate it once the <video> shows up.
+    const video = await screen.findByTitle("Live camera stream");
+    fireEvent.loadedData(video);
     expect(await screen.findByText("LIVE")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop streaming/i })).toBeInTheDocument();
   });

@@ -36,7 +36,12 @@ export function useStopCameraStream() {
   return useMutation({
     mutationFn: stopCameraStream,
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: CAMERA_STATUS_QUERY_KEY });
+      // Clear the cache synchronously rather than invalidating — an
+      // invalidate-triggered refetch can lose the race against the
+      // dashboard's own `cameraStatus` state going to `null`, leaving
+      // `polledStatus ?? cameraStatus` in CameraPanel briefly serving stale
+      // "running: true" data from before the stop.
+      queryClient.removeQueries({ queryKey: CAMERA_STATUS_QUERY_KEY });
       toast.success("Camera stream stopped");
     },
     onError: (error) => {
