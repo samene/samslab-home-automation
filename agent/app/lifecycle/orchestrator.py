@@ -158,7 +158,15 @@ class Agent:
         if self._state_machine.state not in (AgentState.STOPPING, AgentState.STOPPED):
             self._state_machine.transition_to(AgentState.STOPPING)
         await self._command_dispatcher.aclose()
-        await self._connection_manager.disconnect(reason="agent shutting down")
+        # Plugin shutdown before disconnect, not after: TerminalPlugin's own
+        # shutdown sends a final TERMINAL_CLOSED for every open session, which
+        # needs a live connection to go anywhere. Sending it after disconnect
+        # would silently no-op (NotConnectedError, swallowed) — the server
+        # would never learn the session ended, and would keep treating it as
+        # still open indefinitely (see docs/agent/TERMINAL.md). Camera/pump
+        # shutdown only release local hardware, so this ordering costs them
+        # nothing.
         await self._plugin_manager.shutdown()
+        await self._connection_manager.disconnect(reason="agent shutting down")
         self._state_machine.transition_to(AgentState.STOPPED)
         clear_context()

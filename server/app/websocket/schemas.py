@@ -26,6 +26,14 @@ from shared.protocol.schemas import (
     MessageAckPayload,
     PingPayload,
     PongPayload,
+    TerminalClosedPayload,
+    TerminalClosePayload,
+    TerminalErrorPayload,
+    TerminalInputPayload,
+    TerminalOpenedPayload,
+    TerminalOpenPayload,
+    TerminalOutputPayload,
+    TerminalResizePayload,
     WelcomePayload,
 )
 
@@ -58,5 +66,13 @@ __all__ = [
     "PingPayload",
     "PongPayload",
     "SessionSummaryDTO",
+    "TerminalClosePayload",
+    "TerminalClosedPayload",
+    "TerminalErrorPayload",
+    "TerminalInputPayload",
+    "TerminalOpenPayload",
+    "TerminalOpenedPayload",
+    "TerminalOutputPayload",
+    "TerminalResizePayload",
     "WelcomePayload",
 ]

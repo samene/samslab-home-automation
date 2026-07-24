@@ -16,6 +16,8 @@ from app.notifications.dispatcher import register_notification_subscribers
 from app.notifications.providers.telegram import TelegramProvider
 from app.notifications.service import NotificationService
 from app.scheduler.scheduler import WorkflowScheduler
+from app.terminal.manager import TerminalSessionManager
+from app.terminal.relay import register_terminal_relay
 from app.websocket.manager import SessionManager
 
 
@@ -31,6 +33,7 @@ class ApplicationContainer(containers.DeclarativeContainer):
     database = providers.Object(None)  # type: ignore[var-annotated]
     event_bus = providers.Singleton(EventBus)
     session_manager = providers.Singleton(SessionManager)
+    terminal_session_manager = providers.Singleton(TerminalSessionManager)
     workflow_run_registry = providers.Singleton(WorkflowRunRegistry)
     schedule_run_registry = providers.Singleton(ScheduleRunRegistry)
     mediamtx_jwt_signer = providers.Singleton(build_mediamtx_jwt_signer, settings=settings)
@@ -63,4 +66,5 @@ def build_container(settings: Settings) -> ApplicationContainer:
     container = ApplicationContainer(settings=settings, database=database)
     register_logging_subscriber(container.event_bus())
     register_notification_subscribers(container.event_bus(), container.notification_service)
+    register_terminal_relay(container.event_bus(), container.terminal_session_manager())
     return container

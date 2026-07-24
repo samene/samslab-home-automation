@@ -194,6 +194,28 @@ class AgentSettings(BaseSettings):
     pump_trigger_pulse_max_ms: int = Field(
         default=5000, gt=0, validation_alias="PUMP_TRIGGER_PULSE_MAX_MS"
     )
+    # Interactive terminal (see app/plugins/terminal/) — an operator escape
+    # hatch, off by default so a fresh deployment doesn't expose a shell
+    # until someone deliberately opts in. Authorization still happens
+    # server-side (RequirePermission("commands.execute")) before the server
+    # ever forwards TERMINAL_OPEN; this flag is the agent's own independent
+    # kill switch, checked again on every TERMINAL_OPEN.
+    terminal_enabled: bool = Field(default=False, validation_alias="TERMINAL_ENABLED")
+    terminal_shell: str = Field(default="/bin/bash", validation_alias="TERMINAL_SHELL")
+    # A session with no TERMINAL_INPUT for this long is closed automatically
+    # — the backstop against a zombie PTY/shell process outliving a browser
+    # tab that vanished without ever sending TERMINAL_CLOSE (crash, network
+    # loss, laptop closed). Reset by every TERMINAL_INPUT and TERMINAL_RESIZE.
+    terminal_session_timeout: float = Field(
+        default=300.0, gt=0, validation_alias="TERMINAL_SESSION_TIMEOUT"
+    )
+    # This agent manages exactly one Raspberry Pi, so more than a handful of
+    # concurrent PTYs is never a real use case — bounded mainly to fail a
+    # runaway/misbehaving client loudly (TerminalMaxSessionsError) instead of
+    # letting shell processes accumulate without limit.
+    terminal_max_sessions_per_device: int = Field(
+        default=1, ge=1, validation_alias="TERMINAL_MAX_SESSIONS_PER_DEVICE"
+    )
 
     @model_validator(mode="after")
     def validate_pump_pulse_bounds(self) -> AgentSettings:

@@ -5,9 +5,11 @@ import { DeviceHeroCard } from "@/components/dashboard/DeviceHeroCard";
 import { QuickSnapshotCard } from "@/components/dashboard/QuickSnapshotCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { RecentWorkflows } from "@/components/dashboard/RecentWorkflows";
+import { TerminalLauncherCard } from "@/components/dashboard/TerminalLauncherCard";
 import { UpcomingSchedules } from "@/components/dashboard/UpcomingSchedules";
 import { WeatherWidget } from "@/components/dashboard/WeatherWidget";
 import { ConfirmDialog } from "@/components/shared/ConfirmDialog";
+import { TerminalDrawer } from "@/components/terminal/TerminalDrawer";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useStartCameraStream, useStopCameraStream, useTakeSnapshot } from "@/hooks/useCamera";
@@ -27,6 +29,7 @@ export function DashboardPage() {
 
   const [pumpConfirmOpen, setPumpConfirmOpen] = useState(false);
   const [cameraStatus, setCameraStatus] = useState<CameraStatusDTO | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
 
   const deviceNameById = useMemo(
     () => (device ? { [device.id]: device.display_name } : {}),
@@ -95,6 +98,10 @@ export function DashboardPage() {
             triggering={pumpTriggering}
             onTriggerPump={() => setPumpConfirmOpen(true)}
           />
+          <TerminalLauncherCard
+            disabled={!device || device.status !== "ONLINE"}
+            onOpen={() => setTerminalOpen(true)}
+          />
           <QuickSnapshotCard hasDevice={Boolean(device)} />
           <RecentWorkflows />
           <UpcomingSchedules />
@@ -129,6 +136,13 @@ export function DashboardPage() {
         confirmLabel="Trigger"
         isConfirming={createCommand.isPending}
         onConfirm={() => void handleConfirmPumpTrigger()}
+      />
+
+      <TerminalDrawer
+        open={terminalOpen}
+        onOpenChange={setTerminalOpen}
+        deviceId={device?.id}
+        deviceName={device?.display_name}
       />
     </div>
   );

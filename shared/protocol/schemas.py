@@ -147,3 +147,79 @@ class GoodbyePayload(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     reason: str | None = None
+
+
+class TerminalOpenPayload(BaseModel):
+    """Request to open (or attach to) one interactive PTY session on a device."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    cols: int = Field(ge=1, le=1000)
+    rows: int = Field(ge=1, le=1000)
+
+
+class TerminalOpenedPayload(BaseModel):
+    """The agent's confirmation that a PTY session is open and ready for input."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    shell: str = Field(min_length=1)
+
+
+class TerminalInputPayload(BaseModel):
+    """Raw keystroke/paste bytes to write to the PTY's stdin, UTF-8 text on the wire."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    data: str
+
+
+class TerminalOutputPayload(BaseModel):
+    """Raw PTY output bytes (stdout+stderr, interleaved exactly as the tty produced them)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    data: str
+
+
+class TerminalResizePayload(BaseModel):
+    """A new terminal size to apply to the PTY (``TIOCSWINSZ``), in character cells."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    cols: int = Field(ge=1, le=1000)
+    rows: int = Field(ge=1, le=1000)
+
+
+class TerminalClosePayload(BaseModel):
+    """Request to terminate one PTY session and release its resources."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    reason: str | None = None
+
+
+class TerminalClosedPayload(BaseModel):
+    """Confirmation that a PTY session has terminated; ``exit_code`` is ``None`` if unknown."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID
+    reason: str
+    exit_code: int | None = None
+
+
+class TerminalErrorPayload(BaseModel):
+    """A terminal-session-scoped error that does not necessarily close the session."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: UUID | None = None
+    code: str = Field(min_length=1)
+    message: str = Field(min_length=1)

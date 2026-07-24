@@ -113,3 +113,51 @@ class UserLoggedIn:
     user_id: UUID
     username: str
     occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalOpenedReceived:
+    """Published by the WebSocket Gateway when an agent confirms a PTY session is open.
+
+    A transient, in-process signal only — ``TerminalSessionManager``
+    (``server/app/terminal/``) subscribes to this to notify every browser
+    connection attached to the session; the gateway itself has no notion of
+    what a terminal session is beyond one more envelope type to relay.
+    """
+
+    device_id: UUID
+    session_id: UUID
+    shell: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalOutputReceived:
+    """Published by the WebSocket Gateway when an agent forwards PTY output bytes."""
+
+    device_id: UUID
+    session_id: UUID
+    data: str
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalClosedReceived:
+    """Published by the WebSocket Gateway when an agent reports a PTY session ended."""
+
+    device_id: UUID
+    session_id: UUID
+    reason: str
+    exit_code: int | None
+    occurred_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalErrorReceived:
+    """Published by the WebSocket Gateway when an agent reports a terminal-scoped error."""
+
+    device_id: UUID
+    session_id: UUID | None
+    code: str
+    message: str
+    occurred_at: datetime

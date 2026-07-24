@@ -265,3 +265,132 @@ async def test_an_unexpected_message_type_is_logged_but_not_fatal() -> None:
     envelope = _envelope(MessageType.WELCOME, {})
     await dispatch_message(session=session, connection=session.connection, envelope=envelope)
     assert session.connection.enqueued == []  # type: ignore[attr-defined]
+
+
+class _FakeBus:
+    def __init__(self) -> None:
+        self.published: list[object] = []
+
+    async def publish(self, event: object) -> None:
+        self.published.append(event)
+
+
+@pytest.mark.asyncio
+async def test_terminal_opened_is_acknowledged_and_published() -> None:
+    session = _make_session()
+    session_id = uuid4()
+    envelope = _envelope(
+        MessageType.TERMINAL_OPENED, {"session_id": str(session_id), "shell": "/bin/bash"}
+    )
+    bus = _FakeBus()
+
+    await dispatch_message(
+        session=session,
+        connection=session.connection,
+        envelope=envelope,
+        event_bus=bus,  # type: ignore[arg-type]
+    )
+
+    sent = session.connection.enqueued  # type: ignore[attr-defined]
+    assert len(sent) == 1
+    assert sent[0].message_type is MessageType.MESSAGE_ACK
+    assert len(bus.published) == 1
+    assert bus.published[0].session_id == session_id  # type: ignore[attr-defined]
+    assert bus.published[0].shell == "/bin/bash"  # type: ignore[attr-defined]
+    assert bus.published[0].device_id == session.device_id  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_terminal_output_is_published_without_a_message_ack() -> None:
+    """Unlike every other terminal message type, TERMINAL_OUTPUT gets no MESSAGE_ACK reply."""
+    session = _make_session()
+    session_id = uuid4()
+    envelope = _envelope(
+        MessageType.TERMINAL_OUTPUT, {"session_id": str(session_id), "data": "hello\n"}
+    )
+    bus = _FakeBus()
+
+    await dispatch_message(
+        session=session,
+        connection=session.connection,
+        envelope=envelope,
+        event_bus=bus,  # type: ignore[arg-type]
+    )
+
+    assert session.connection.enqueued == []  # type: ignore[attr-defined]
+    assert len(bus.published) == 1
+    assert bus.published[0].data == "hello\n"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_terminal_closed_is_acknowledged_and_published() -> None:
+    session = _make_session()
+    session_id = uuid4()
+    envelope = _envelope(
+        MessageType.TERMINAL_CLOSED,
+        {"session_id": str(session_id), "reason": "shell_exited", "exit_code": 0},
+    )
+    bus = _FakeBus()
+
+    await dispatch_message(
+        session=session,
+        connection=session.connection,
+        envelope=envelope,
+        event_bus=bus,  # type: ignore[arg-type]
+    )
+
+    sent = session.connection.enqueued  # type: ignore[attr-defined]
+    assert len(sent) == 1
+    assert sent[0].message_type is MessageType.MESSAGE_ACK
+    assert len(bus.published) == 1
+    assert bus.published[0].reason == "shell_exited"  # type: ignore[attr-defined]
+    assert bus.published[0].exit_code == 0  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_terminal_error_is_acknowledged_and_published() -> None:
+    session = _make_session()
+    session_id = uuid4()
+    envelope = _envelope(
+        MessageType.TERMINAL_ERROR,
+        {"session_id": str(session_id), "code": "spawn_failed", "message": "boom"},
+    )
+    bus = _FakeBus()
+
+    await dispatch_message(
+        session=session,
+        connection=session.connection,
+        envelope=envelope,
+        event_bus=bus,  # type: ignore[arg-type]
+    )
+
+    sent = session.connection.enqueued  # type: ignore[attr-defined]
+    assert len(sent) == 1
+    assert sent[0].message_type is MessageType.MESSAGE_ACK
+    assert len(bus.published) == 1
+    assert bus.published[0].code == "spawn_failed"  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_terminal_error_without_a_session_id_is_published_as_none() -> None:
+    """A device-wide terminal error (e.g. before any session exists) carries no session_id."""
+    session = _make_session()
+    envelope = _envelope(MessageType.TERMINAL_ERROR, {"code": "terminal_disabled", "message": "no"})
+    bus = _FakeBus()
+
+    await dispatch_message(
+        session=session,
+        connection=session.connection,
+        envelope=envelope,
+        event_bus=bus,  # type: ignore[arg-type]
+    )
+
+    assert bus.published[0].session_id is None  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_terminal_opened_with_a_malformed_payload_raises_protocol_violation() -> None:
+    session = _make_session()
+    envelope = _envelope(MessageType.TERMINAL_OPENED, {})
+    with pytest.raises(ProtocolViolationError):
+        await dispatch_message(session=session, connection=session.connection, envelope=envelope)

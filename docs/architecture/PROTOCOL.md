@@ -41,8 +41,16 @@ Every message is one JSON-encoded envelope, a Pydantic `Envelope` (`shared/proto
 | `ERROR` | either | `ErrorPayload` (code, message, details) | Application-level protocol error |
 | `MESSAGE_ACK` | either | `MessageAckPayload` (acknowledged_message_id) | Acknowledges receipt of exactly one prior message |
 | `GOODBYE` | either | `GoodbyePayload` (reason) | Graceful, application-level disconnect notice |
+| `TERMINAL_OPEN` | server (relaying a browser) | `TerminalOpenPayload` (session_id, cols, rows) | Open, or attach to, one interactive PTY session |
+| `TERMINAL_OPENED` | agent | `TerminalOpenedPayload` (session_id, shell) | Confirms a PTY session is open and ready for input |
+| `TERMINAL_INPUT` | server (relaying a browser) | `TerminalInputPayload` (session_id, data) | Raw keystroke/paste bytes for the PTY's stdin |
+| `TERMINAL_OUTPUT` | agent | `TerminalOutputPayload` (session_id, data) | Raw PTY output bytes, streamed as produced |
+| `TERMINAL_RESIZE` | server (relaying a browser) | `TerminalResizePayload` (session_id, cols, rows) | A new terminal window size |
+| `TERMINAL_CLOSE` | server (relaying a browser) | `TerminalClosePayload` (session_id, reason) | Terminate one PTY session |
+| `TERMINAL_CLOSED` | agent | `TerminalClosedPayload` (session_id, reason, exit_code) | A PTY session has terminated |
+| `TERMINAL_ERROR` | agent | `TerminalErrorPayload` (session_id, code, message) | A terminal-session-scoped error |
 
-`COMMAND`, `COMMAND_ACK`, `COMMAND_RESULT`, `EVENT`, and `LOG` all receive a `MESSAGE_ACK` correlated to the original `message_id` — a transport-level delivery acknowledgement the gateway sends for every message of these types, regardless of what (if anything) consumes the message's contents. `COMMAND_ACK` and `COMMAND_RESULT` additionally publish `CommandAckReceived`/`CommandResultReceived` on the shared application event bus, which is how the Command Dispatcher (`server/app/dispatcher/`, see [Architecture](ARCHITECTURE.md) and [Data flow](DATAFLOW.md)) learns of them — the gateway itself never imports or calls the dispatcher directly.
+`COMMAND`, `COMMAND_ACK`, `COMMAND_RESULT`, `EVENT`, and `LOG` all receive a `MESSAGE_ACK` correlated to the original `message_id` — a transport-level delivery acknowledgement the gateway sends for every message of these types, regardless of what (if anything) consumes the message's contents. `COMMAND_ACK` and `COMMAND_RESULT` additionally publish `CommandAckReceived`/`CommandResultReceived` on the shared application event bus, which is how the Command Dispatcher (`server/app/dispatcher/`, see [Architecture](ARCHITECTURE.md) and [Data flow](DATAFLOW.md)) learns of them — the gateway itself never imports or calls the dispatcher directly. `TERMINAL_OPENED`/`TERMINAL_CLOSED`/`TERMINAL_ERROR` follow the identical pattern, publishing `Terminal*Received` events the terminal transport (below) subscribes to; `TERMINAL_OPEN`/`TERMINAL_INPUT`/`TERMINAL_RESIZE`/`TERMINAL_OUTPUT` deliberately receive **no** `MESSAGE_ACK` (`shared/protocol/message_types.TERMINAL_MESSAGE_TYPES` is excluded from `ACK_REQUIRED_MESSAGE_TYPES` the same way `PING`/`PONG` are) — a high-frequency interactive byte stream gains nothing from transport-level ack/retry and would only add latency and out-of-order-redelivery risk.
 
 ### Handshake and version negotiation
 
@@ -87,6 +95,10 @@ The sections above are the server's view of `COMMAND`/`COMMAND_ACK`/`COMMAND_RES
 
 See [Commands](../agent/COMMANDS.md) for the agent's own lifecycle state machine (a separate, in-memory, per-command state machine — not the same one as the server's persisted `CommandStatus` above) and [Agent design](../agent/AGENT.md#command-runtime-implemented-phase-2) for the full file-by-file breakdown. The wire messages and schemas themselves are unchanged by this — the agent's richer internal result (status/duration/exit-code/stack-trace) is mapped down to the existing `CommandResultPayload` shape when it's actually sent.
 
+### Interactive terminal sessions (implemented)
+
+`TERMINAL_*` carries a persistent, bidirectional PTY session — deliberately not modeled as a `Command` (see [Terminal](../agent/TERMINAL.md) for the full "stream, not command" rationale). Two WebSocket connections are involved, not one: the agent<->server connection this document otherwise describes (unchanged in its own handshake/session rules, just carrying eight more `MessageType`s), and a *second*, browser-facing WebSocket (`server/app/terminal/`, `WS /ws/terminal/{device_id}`) that a human user's browser opens directly to the cloud server — the one deliberate exception to "the browser never talks to the Raspberry Pi" being about the *Pi*, not about there only ever being one WebSocket. That second connection reuses this same envelope format and the same `HELLO`/`decode_principal()` authentication primitive, just with a **user** JWT instead of a device one (`RequirePermission`-equivalent: `"commands.execute" in principal.permissions`), and relays `TERMINAL_*` messages onward through the *existing* `SessionManager.send()`/agent connection — it does not open a third connection to the agent, and it never touches the Command Dispatcher.
+
 ## Design Decisions
 
 - The gateway is a transport layer only: it never executes a command, never accesses GPIO, and never accesses a repository directly — its one cross-domain call is through the Application Layer, the same seam a future MQTT or gRPC transport would use.
@@ -107,4 +119,5 @@ Should agent identity add mTLS in addition to the current JWT-bound device crede
 - [API](API.md)
 - [Components](COMPONENTS.md)
 - [Commands](../agent/COMMANDS.md)
+- [Terminal](../agent/TERMINAL.md)
 - [Security](SECURITY.md)

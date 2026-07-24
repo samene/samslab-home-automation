@@ -50,6 +50,7 @@ from app.domains.workflows.service import WorkflowService
 from app.logging.configure import configure_logging
 from app.logging.context import get_request_context
 from app.middleware.request_context import RequestContextMiddleware
+from app.terminal.router import build_terminal_router
 from app.websocket.router import build_websocket_router
 
 
@@ -328,6 +329,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "the shared event bus, never through this REST surface."
                 ),
             },
+            {
+                "name": "Terminal",
+                "description": (
+                    "The browser-facing WebSocket that relays an interactive PTY "
+                    "session to a device's agent. Transport only: it never "
+                    "executes a shell command itself, and a terminal session is "
+                    "never modeled as a Command — see docs/agent/TERMINAL.md."
+                ),
+            },
         ],
         lifespan=lifespan,
     )
@@ -352,6 +362,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(schedules_router)
     application.include_router(mediamtx_jwks_router)
     application.include_router(notifications_router)
+    application.include_router(build_terminal_router(resolved_settings))
     application.add_exception_handler(StarletteHTTPException, http_exception_handler)
     application.add_exception_handler(RequestValidationError, validation_exception_handler)
     application.add_exception_handler(ApplicationError, application_exception_handler)

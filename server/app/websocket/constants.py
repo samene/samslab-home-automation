@@ -29,3 +29,6 @@ class CloseCode:
     UNSUPPORTED_PROTOCOL_VERSION: Final[int] = 4426
     BACKPRESSURE: Final[int] = 4413
     HEARTBEAT_TIMEOUT: Final[int] = 4000
+    #: Used by the browser-facing terminal transport (app/terminal/) when the
+    #: target device doesn't exist, is disabled, or has no open agent session.
+    DEVICE_UNAVAILABLE: Final[int] = 4404

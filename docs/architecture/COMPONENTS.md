@@ -164,6 +164,20 @@ The gateway's one cross-domain call is through `DeviceApplicationService` (confi
 
 Admin REST endpoints live outside this package, in `app/api/dispatcher.py` (matching `app/api/health.py`'s pattern) — the dispatcher package itself has no FastAPI import anywhere. `GET /dispatcher/status`, `/queue`, `/running`, and `/statistics` are read-only and gated by `RequirePermission("system.admin")`, resolving the dispatcher singleton (`app/core/container.py`) and calling its accessor methods. `/ready` also reports `unhealthy` if a dispatcher that successfully started later stops (its worker task died) — a dispatcher that never started (no database configured) is not itself a readiness failure.
 
+### The Terminal Transport (implemented)
+
+`server/app/terminal/` is a coordination-only package, the same shape as the Command Dispatcher — no persistence, no repository access, never a business domain — that relays one interactive PTY session per device between a browser and the agent that hosts it. See [Terminal](../agent/TERMINAL.md) for the full design and "why not a Command" rationale.
+
+| File | Owns | Depends on |
+| --- | --- | --- |
+| `router.py` | `TerminalGateway` and `build_terminal_router()` — the browser-facing `WS /ws/terminal/{device_id}` route's full connection lifecycle: accept, HELLO-style user-JWT handshake, relay browser→agent messages | `manager.py`, `connection.py`, the *existing* `app/websocket/manager.py` (`SessionManager.send`), `DeviceApplicationService`, the Auth core (`decode_principal`) |
+| `manager.py` | `TerminalSessionManager` — in-memory `device_id -> (session_id, shell, {attached browsers})`; session reuse/attach logic | `connection.py` |
+| `connection.py` | `BrowserConnection` — one browser socket's bounded outgoing queue and backpressure only (no ack-tracking/dedup — see [Terminal](../agent/TERMINAL.md)) | `app/websocket/schemas.py`/`serializer.py` |
+| `relay.py` | `register_terminal_relay()` — one-time subscription (like `register_notification_subscribers`) forwarding `Terminal*Received` events to every attached browser | `manager.py`, `connection.py`, the application event bus |
+| `exceptions.py` | Transport-only failures (`AuthenticationFailedError`, `DeviceUnavailableError`, `HandshakeTimeoutError`, `ProtocolViolationError`), never a domain exception | nothing |
+
+The *existing* agent-facing `server/app/websocket/handlers.py` gained four new branches (`TERMINAL_OPENED`/`TERMINAL_OUTPUT`/`TERMINAL_CLOSED`/`TERMINAL_ERROR`) publishing `Terminal*Received` on the shared event bus, exactly like `COMMAND_ACK`/`COMMAND_RESULT` already do — the gateway package itself gained no new file and still never imports `app/terminal/`. `TerminalSessionManager` is a per-application singleton (`app/core/container.py`), never persisted, dropped on restart like `SessionManager` itself.
+
 ### Shared protocol contracts (implemented)
 
 `shared/protocol/` (`schemas.py`, `message_types.py`, `serializer.py`, `exceptions.py`) holds the canonical `Envelope`/payload Pydantic models, `MessageType`, `serialize`/`deserialize`, and the protocol-only exception hierarchy (`ProtocolError` → `ProtocolViolationError`/`ProtocolVersionUnsupportedError`) — a pydantic-only package with no transport or infrastructure dependency, importable by both `server/app/websocket/` and `agent/app/protocol/`. `server/app/websocket/{schemas,protocol,serializer,exceptions}.py` are thin re-export shims over it, so every existing gateway import path is unchanged; `SessionSummaryDTO` (a gateway admin-endpoint DTO, not a wire-protocol shape) is the one thing that still lives only in `server/app/websocket/schemas.py`.

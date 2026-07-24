@@ -30,6 +30,21 @@ class MessageType(StrEnum):
     ERROR = "ERROR"
     MESSAGE_ACK = "MESSAGE_ACK"
     GOODBYE = "GOODBYE"
+    # Interactive terminal session control — carried over the same envelope
+    # transport as everything above, but deliberately outside the Command
+    # Framework: a terminal is a persistent, bidirectional PTY session, not a
+    # one-shot request/reply. TERMINAL_OPEN/TERMINAL_INPUT/TERMINAL_RESIZE/
+    # TERMINAL_CLOSE flow toward the agent (from the server, itself relaying
+    # from a browser terminal connection — see server/app/terminal/);
+    # TERMINAL_OPENED/TERMINAL_OUTPUT/TERMINAL_CLOSED/TERMINAL_ERROR flow back.
+    TERMINAL_OPEN = "TERMINAL_OPEN"
+    TERMINAL_OPENED = "TERMINAL_OPENED"
+    TERMINAL_INPUT = "TERMINAL_INPUT"
+    TERMINAL_OUTPUT = "TERMINAL_OUTPUT"
+    TERMINAL_RESIZE = "TERMINAL_RESIZE"
+    TERMINAL_CLOSE = "TERMINAL_CLOSE"
+    TERMINAL_CLOSED = "TERMINAL_CLOSED"
+    TERMINAL_ERROR = "TERMINAL_ERROR"
 
 
 #: Message types whose delivery is tracked for acknowledgement, retry, and timeout.
@@ -39,6 +54,26 @@ ACK_REQUIRED_MESSAGE_TYPES: Final[frozenset[MessageType]] = frozenset(
         MessageType.COMMAND_RESULT,
         MessageType.EVENT,
         MessageType.LOG,
+    }
+)
+
+#: Terminal messages are deliberately excluded from ack/retry tracking, exactly
+#: like PING/PONG — TERMINAL_INPUT/TERMINAL_OUTPUT are a high-frequency,
+#: latency-sensitive byte stream (every keystroke, every screen redraw) where
+#: transport-level ack/retry would add overhead and out-of-order-redelivery
+#: risk without benefit. TCP already guarantees in-order delivery within one
+#: connection; a dropped connection is handled by closing and reopening the
+#: terminal session, not by per-message retry.
+TERMINAL_MESSAGE_TYPES: Final[frozenset[MessageType]] = frozenset(
+    {
+        MessageType.TERMINAL_OPEN,
+        MessageType.TERMINAL_OPENED,
+        MessageType.TERMINAL_INPUT,
+        MessageType.TERMINAL_OUTPUT,
+        MessageType.TERMINAL_RESIZE,
+        MessageType.TERMINAL_CLOSE,
+        MessageType.TERMINAL_CLOSED,
+        MessageType.TERMINAL_ERROR,
     }
 )
 

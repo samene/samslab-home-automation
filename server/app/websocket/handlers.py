@@ -20,7 +20,14 @@ import structlog
 from pydantic import BaseModel, ValidationError
 
 from app.application.events.bus import EventBus
-from app.application.events.domain_events import CommandAckReceived, CommandResultReceived
+from app.application.events.domain_events import (
+    CommandAckReceived,
+    CommandResultReceived,
+    TerminalClosedReceived,
+    TerminalErrorReceived,
+    TerminalOpenedReceived,
+    TerminalOutputReceived,
+)
 from app.websocket.connection import Connection
 from app.websocket.exceptions import ProtocolViolationError
 from app.websocket.metrics import MESSAGES_RECEIVED_TOTAL
@@ -32,6 +39,10 @@ from app.websocket.schemas import (
     ErrorPayload,
     MessageAckPayload,
     PongPayload,
+    TerminalClosedPayload,
+    TerminalErrorPayload,
+    TerminalOpenedPayload,
+    TerminalOutputPayload,
 )
 from app.websocket.session import Session
 
@@ -146,6 +157,85 @@ async def dispatch_message(
                     success=result_payload.success,
                     result=result_payload.result or {},
                     error_message=result_payload.error_message,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        _send_message_ack(connection, session, envelope.message_id)
+        return
+
+    if envelope.message_type is MessageType.TERMINAL_OPENED:
+        opened_payload: TerminalOpenedPayload = _validate_payload(
+            TerminalOpenedPayload, envelope.payload, envelope.message_type
+        )
+        logger.info("websocket_terminal_opened_received", session_id=str(opened_payload.session_id))
+        if event_bus is not None:
+            await event_bus.publish(
+                TerminalOpenedReceived(
+                    device_id=session.device_id,
+                    session_id=opened_payload.session_id,
+                    shell=opened_payload.shell,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        _send_message_ack(connection, session, envelope.message_id)
+        return
+
+    if envelope.message_type is MessageType.TERMINAL_OUTPUT:
+        # Deliberately no MESSAGE_ACK here — see
+        # shared.protocol.message_types.TERMINAL_MESSAGE_TYPES: a
+        # high-frequency byte stream is not worth transport-level ack/retry.
+        output_payload: TerminalOutputPayload = _validate_payload(
+            TerminalOutputPayload, envelope.payload, envelope.message_type
+        )
+        if event_bus is not None:
+            await event_bus.publish(
+                TerminalOutputReceived(
+                    device_id=session.device_id,
+                    session_id=output_payload.session_id,
+                    data=output_payload.data,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        return
+
+    if envelope.message_type is MessageType.TERMINAL_CLOSED:
+        closed_payload: TerminalClosedPayload = _validate_payload(
+            TerminalClosedPayload, envelope.payload, envelope.message_type
+        )
+        logger.info(
+            "websocket_terminal_closed_received",
+            session_id=str(closed_payload.session_id),
+            reason=closed_payload.reason,
+        )
+        if event_bus is not None:
+            await event_bus.publish(
+                TerminalClosedReceived(
+                    device_id=session.device_id,
+                    session_id=closed_payload.session_id,
+                    reason=closed_payload.reason,
+                    exit_code=closed_payload.exit_code,
+                    occurred_at=datetime.now(UTC),
+                )
+            )
+        _send_message_ack(connection, session, envelope.message_id)
+        return
+
+    if envelope.message_type is MessageType.TERMINAL_ERROR:
+        error_payload: TerminalErrorPayload = _validate_payload(
+            TerminalErrorPayload, envelope.payload, envelope.message_type
+        )
+        logger.warning(
+            "websocket_terminal_error_received",
+            session_id=str(error_payload.session_id) if error_payload.session_id else None,
+            code=error_payload.code,
+        )
+        if event_bus is not None:
+            await event_bus.publish(
+                TerminalErrorReceived(
+                    device_id=session.device_id,
+                    session_id=error_payload.session_id,
+                    code=error_payload.code,
+                    message=error_payload.message,
                     occurred_at=datetime.now(UTC),
                 )
             )

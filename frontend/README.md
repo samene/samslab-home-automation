@@ -43,17 +43,29 @@ use. The script is idempotent — re-running it with the same username is a no-o
 
 The server's `/ws` WebSocket Gateway is **device-only authenticated** — it
 completes a handshake using a device JWT, and explicitly rejects human user
-tokens (see `server/tests/test_websocket_gateway.py`). There is currently no
-browser-facing realtime channel in the backend, and building one that pretends
-to be a device (or a client that can never complete the handshake) would be
-actively wrong.
+tokens (see `server/tests/test_websocket_gateway.py`). There is no
+general-purpose browser-facing realtime channel in the backend, and building
+one that pretends to be a device (or a client that can never complete the
+handshake) would be actively wrong.
 
 So "live updates" here means TanStack Query polling every 5 seconds
 (`refetchInterval`, see `src/hooks/useDevices.ts` / `useCommands.ts`) rather than
 a literal `WebSocket` connection in the browser. Every query hook that needs
 freshness uses this pattern consistently. If the backend ever grows a
-user-facing realtime channel, swapping the polling for a subscription is a
-change scoped entirely to these hooks — no component above them needs to know.
+general-purpose user-facing realtime channel, swapping the polling for a
+subscription is a change scoped entirely to these hooks — no component above
+them needs to know.
+
+**The one deliberate exception is the interactive terminal**
+(`src/lib/terminal/`, `src/hooks/useTerminal.ts`,
+`src/components/terminal/`), which opens a real `WebSocket` directly to a
+*second*, purpose-built, user-JWT-authenticated route
+(`WS /ws/terminal/{device_id}`, `server/app/terminal/`) — polling cannot
+carry an interactive shell's keystroke-by-keystroke, low-latency duplex
+stream. This is a narrowly scoped exception, not a reversal of the rule
+above: every other live value in this app still polls, and this channel
+carries nothing but terminal I/O. See `docs/agent/TERMINAL.md` for the full
+design.
 
 ## Project structure
 

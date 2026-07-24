@@ -12,6 +12,7 @@ from shared.protocol.message_types import (
     ACK_REQUIRED_MESSAGE_TYPES,
     PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS,
+    TERMINAL_MESSAGE_TYPES,
     MessageType,
     negotiate_protocol_version,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "ACK_REQUIRED_MESSAGE_TYPES",
     "PROTOCOL_VERSION",
     "SUPPORTED_PROTOCOL_VERSIONS",
+    "TERMINAL_MESSAGE_TYPES",
     "MessageType",
     "negotiate_protocol_version",
 ]

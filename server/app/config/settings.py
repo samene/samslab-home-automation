@@ -110,6 +110,16 @@ class Settings(BaseSettings):
         default=1.0, gt=0, validation_alias="DISPATCHER_SWEEP_INTERVAL_SECONDS"
     )
     allow_origins: tuple[str, ...] = Field(default=(), validation_alias="ALLOW_ORIGINS")
+    # The browser-facing terminal WebSocket (app/terminal/) is deliberately a
+    # separate path/route from `websocket_path` above: that one is
+    # device-only authenticated (a device JWT via HELLO) and rejects human
+    # users by design (see docs/architecture/PROTOCOL.md); this one is
+    # user-only authenticated (RequirePermission("commands.execute")) and
+    # relays to the agent rather than terminating a device connection
+    # itself. `{device_id}` is appended by app/terminal/router.py.
+    terminal_websocket_path: str = Field(
+        default="/ws/terminal", validation_alias="TERMINAL_WEBSOCKET_PATH"
+    )
     mediamtx_host: str = Field(default="127.0.0.1", validation_alias="MEDIAMTX_HOST")
     mediamtx_playback_scheme: Literal["http", "https"] = Field(
         default="http", validation_alias="MEDIAMTX_PLAYBACK_SCHEME"
@@ -244,12 +254,12 @@ class Settings(BaseSettings):
             raise ValueError("LOG_LEVEL must not be empty")
         return normalized
 
-    @field_validator("websocket_path")
+    @field_validator("websocket_path", "terminal_websocket_path")
     @classmethod
     def validate_websocket_path(cls, value: str) -> str:
-        """Keep the future WebSocket route path well-formed without creating it."""
+        """Keep a WebSocket route path well-formed."""
         if not value.startswith("/"):
-            raise ValueError("WEBSOCKET_PATH must start with '/'")
+            raise ValueError("Value must start with '/'")
         return value
 
     @field_validator("mediamtx_playback_port", mode="before")

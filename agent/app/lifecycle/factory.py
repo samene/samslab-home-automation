@@ -26,9 +26,12 @@ from app.plugins.pump.handlers import register_pump_handlers
 from app.plugins.pump.plugin import PumpPlugin
 from app.plugins.pump.service import PumpService
 from app.plugins.registry import PluginManager
+from app.plugins.terminal.plugin import TerminalPlugin
+from app.plugins.terminal.service import TerminalService
 from app.services.session import SessionState
 from app.state.machine import StateMachine
 from app.utils.version import AGENT_VERSION
+from shared.protocol.message_types import MessageType
 
 
 def build_agent(settings: AgentSettings, *, plugin_manager: PluginManager | None = None) -> Agent:
@@ -44,6 +47,16 @@ def build_agent(settings: AgentSettings, *, plugin_manager: PluginManager | None
     plugins.register(CameraPlugin(camera_service))
     pump_service = PumpService(settings)
     plugins.register(PumpPlugin(pump_service))
+    terminal_service = TerminalService(settings, send=connection_manager.send)
+    plugins.register(TerminalPlugin(terminal_service, enabled=settings.terminal_enabled))
+    # TERMINAL_* messages are not commands (see app/plugins/terminal/service.py
+    # for why) — registered straight onto the generic MessageDispatcher, the
+    # same routing table PING/PONG/ERROR/GOODBYE use, rather than threaded
+    # through CommandServices/CommandRegistry like a camera.* or pump.* handler.
+    dispatcher.register(MessageType.TERMINAL_OPEN, terminal_service.handle_open)
+    dispatcher.register(MessageType.TERMINAL_INPUT, terminal_service.handle_input)
+    dispatcher.register(MessageType.TERMINAL_RESIZE, terminal_service.handle_resize)
+    dispatcher.register(MessageType.TERMINAL_CLOSE, terminal_service.handle_close)
     health_service = HealthService(settings=settings, session=session, plugin_manager=plugins)
 
     registry = CommandRegistry()
