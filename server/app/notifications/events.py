@@ -28,13 +28,17 @@ from uuid import UUID
 class WorkflowCompleted:
     """Published once a workflow run finishes in a COMPLETED state.
 
-    ``thumbnail_object_key`` is a plain S3 key reference, not a URL — the
-    Workflow Engine only identifies *which* saved-media thumbnail (if any)
-    this run produced; resolving it into actual bytes is
-    ``NotificationService``'s job (see its module docstring), so this event
-    stays a pure data reference with no S3 client dependency of its own.
-    ``None`` when the run generated no steps that saved media with a
-    thumbnail.
+    ``thumbnail_object_key``/``video_object_key`` are plain S3 key
+    references, not URLs — the Workflow Engine only identifies *which*
+    saved-media object (if any) this run produced; resolving one into
+    actual bytes is ``NotificationService``'s job (see its module
+    docstring), so this event stays a pure data reference with no S3 client
+    dependency of its own. Mutually exclusive: a run that produced a video
+    recording never also sets ``thumbnail_object_key`` — see
+    ``WorkflowApplicationService._resolve_notification_media``, since a
+    provider should attach the actual recording instead of a still preview
+    when one exists, not both. All four are ``None`` when the run generated
+    no media at all.
     """
 
     workflow_id: UUID
@@ -46,6 +50,16 @@ class WorkflowCompleted:
     status: str
     trigger_source: str
     thumbnail_object_key: str | None = None
+    video_object_key: str | None = None
+    video_filename: str | None = None
+    video_size_bytes: int | None = None
+    # Passed through to Telegram's sendVideo as explicit width/height/
+    # duration hints (see TelegramProvider._build_request) — without them, a
+    # client can render the video at the wrong aspect ratio (e.g. stretched)
+    # before/instead of introspecting the file's own container metadata.
+    video_width: int | None = None
+    video_height: int | None = None
+    video_duration_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,3 +84,13 @@ class WorkflowFailed:
     error_message: str
     failed_step: str | None
     thumbnail_object_key: str | None = None
+    video_object_key: str | None = None
+    video_filename: str | None = None
+    video_size_bytes: int | None = None
+    # Passed through to Telegram's sendVideo as explicit width/height/
+    # duration hints (see TelegramProvider._build_request) — without them, a
+    # client can render the video at the wrong aspect ratio (e.g. stretched)
+    # before/instead of introspecting the file's own container metadata.
+    video_width: int | None = None
+    video_height: int | None = None
+    video_duration_seconds: int | None = None

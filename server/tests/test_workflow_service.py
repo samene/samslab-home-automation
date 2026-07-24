@@ -68,6 +68,26 @@ SNAPSHOT_RESULT = {
     "captured_at": "2026-01-01T00:00:00+00:00",
 }
 
+# A realistic camera.record.stop command result — _record_video
+# (app/application/services/command_artifacts.py) needs these exact keys
+# (note "object_key"/"file_size", not "original_object_key"/"size" like the
+# snapshot shape above) to persist a video SavedMedia row.
+RECORD_RESULT: dict[str, object] = {
+    "bucket": "samslab-media",
+    "filename": "recording-20260101T000000Z.mp4",
+    "object_key": "originals/recording-20260101T000000Z.mp4",
+    "thumbnail_object_key": None,
+    "etag": '"def456"',
+    "sha256": "b" * 64,
+    "width": 1920,
+    "height": 1080,
+    "duration": 30,
+    "fps": 30,
+    "bitrate": 8000,
+    "file_size": 5_000_000,
+    "recorded_at": "2026-01-01T00:00:00+00:00",
+}
+
 
 @pytest.fixture
 async def database(tmp_path: Path) -> AsyncIterator[Database]:
@@ -428,14 +448,15 @@ async def test_run_workflow_completed_event_prefers_the_first_snapshot_when_two_
     assert published[0].thumbnail_object_key == SNAPSHOT_RESULT["thumbnail_object_key"]
 
 
-async def test_resolve_thumbnail_object_key_prefers_a_snapshot_over_a_video(
+async def test_resolve_notification_media_prefers_a_video_over_a_snapshot_thumbnail(
     workflow_app_service: WorkflowApplicationService, database: Database, device: DeviceDTO
 ) -> None:
-    """Video thumbnail generation isn't implemented yet (SavedMedia.thumbnail_object_key
-    is always None for MediaType.VIDEO in the real pipeline — see that model's
-    docstring), so this exercises the preference rule directly against
-    manually seeded rows rather than through a real camera.record.stop
-    result, the only way to prove "snapshot beats video" today.
+    """A recording is the more complete artifact — sending it beats sending a still
+    preview *instead of* it, even when the run also produced a snapshot. Video
+    thumbnail generation isn't implemented yet (SavedMedia.thumbnail_object_key is
+    always None for MediaType.VIDEO in the real pipeline — see that model's
+    docstring), so this seeds one directly to prove type-preference doesn't
+    depend on that ever changing.
     """
     run_id = uuid4()
     async with database.session_factory() as session:
@@ -483,11 +504,141 @@ async def test_resolve_thumbnail_object_key_prefers_a_snapshot_over_a_video(
         )
         await session.commit()
 
-        thumbnail_object_key = await workflow_app_service._resolve_thumbnail_object_key(  # noqa: SLF001
+        notification_media = await workflow_app_service._resolve_notification_media(  # noqa: SLF001
             session, run_id
         )
 
-    assert thumbnail_object_key == "thumbnails/snapshot.jpg"
+    assert notification_media.thumbnail_object_key is None
+    assert notification_media.video_object_key == "originals/recording.mp4"
+    assert notification_media.video_filename == "recording.mp4"
+    assert notification_media.video_size_bytes == 1_000_000
+
+
+async def test_resolve_notification_media_falls_back_to_a_thumbnail_with_no_video(
+    workflow_app_service: WorkflowApplicationService, database: Database, device: DeviceDTO
+) -> None:
+    run_id = uuid4()
+    async with database.session_factory() as session:
+        media_service = SavedMediaService(SavedMediaRepository(session))
+        image_command = await CommandRepository(session).create(
+            Command(device_id=device.id, command_type="camera.snapshot", payload={})
+        )
+        await media_service.record_media(
+            media_type=MediaType.IMAGE,
+            device_id=device.id,
+            command_id=image_command.id,
+            filename="snapshot.jpg",
+            bucket="samslab-media",
+            original_object_key="originals/snapshot.jpg",
+            thumbnail_object_key="thumbnails/snapshot.jpg",
+            etag=None,
+            sha256="d" * 64,
+            width=1920,
+            height=1080,
+            size=204800,
+            captured_at=datetime.now(UTC),
+            workflow_run_id=run_id,
+        )
+        await session.commit()
+
+        notification_media = await workflow_app_service._resolve_notification_media(  # noqa: SLF001
+            session, run_id
+        )
+
+    assert notification_media.thumbnail_object_key == "thumbnails/snapshot.jpg"
+    assert notification_media.video_object_key is None
+
+
+async def test_resolve_notification_media_picks_the_first_video_when_two_were_recorded(
+    workflow_app_service: WorkflowApplicationService, database: Database, device: DeviceDTO
+) -> None:
+    """ "first one if multiple" — the earlier-recorded video wins."""
+    run_id = uuid4()
+    async with database.session_factory() as session:
+        media_service = SavedMediaService(SavedMediaRepository(session))
+        first_command = await CommandRepository(session).create(
+            Command(device_id=device.id, command_type="camera.record.stop", payload={})
+        )
+        second_command = await CommandRepository(session).create(
+            Command(device_id=device.id, command_type="camera.record.stop", payload={})
+        )
+        await media_service.record_media(
+            media_type=MediaType.VIDEO,
+            device_id=device.id,
+            command_id=first_command.id,
+            filename="first.mp4",
+            bucket="samslab-media",
+            original_object_key="originals/first.mp4",
+            thumbnail_object_key=None,
+            etag=None,
+            sha256="e" * 64,
+            width=1920,
+            height=1080,
+            size=500_000,
+            captured_at=datetime(2026, 1, 1, tzinfo=UTC),
+            workflow_run_id=run_id,
+        )
+        await media_service.record_media(
+            media_type=MediaType.VIDEO,
+            device_id=device.id,
+            command_id=second_command.id,
+            filename="second.mp4",
+            bucket="samslab-media",
+            original_object_key="originals/second.mp4",
+            thumbnail_object_key=None,
+            etag=None,
+            sha256="f" * 64,
+            width=1920,
+            height=1080,
+            size=500_000,
+            captured_at=datetime(2026, 1, 1, 0, 0, 1, tzinfo=UTC),
+            workflow_run_id=run_id,
+        )
+        await session.commit()
+
+        notification_media = await workflow_app_service._resolve_notification_media(  # noqa: SLF001
+            session, run_id
+        )
+
+    assert notification_media.video_object_key == "originals/first.mp4"
+    assert notification_media.video_filename == "first.mp4"
+
+
+async def test_run_workflow_completed_event_carries_video_from_a_real_recording_step(
+    workflow_app_service: WorkflowApplicationService,
+    database: Database,
+    device: DeviceDTO,
+    event_bus: EventBus,
+) -> None:
+    published: list[WorkflowCompleted] = []
+    event_bus.subscribe(WorkflowCompleted, published.append)
+
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Record Something",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.record.stop"
+                )
+            ],
+        )
+    )
+    await workflow_app_service.run_workflow(created.id)
+
+    await asyncio.gather(
+        _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0),
+        _complete_pending_commands(database, device.id, "camera.record.stop", result=RECORD_RESULT),
+    )
+
+    assert len(published) == 1
+    event = published[0]
+    assert event.thumbnail_object_key is None
+    assert event.video_object_key == RECORD_RESULT["object_key"]
+    assert event.video_filename == RECORD_RESULT["filename"]
+    assert event.video_size_bytes == RECORD_RESULT["file_size"]
+    assert event.video_width == RECORD_RESULT["width"]
+    assert event.video_height == RECORD_RESULT["height"]
+    assert event.video_duration_seconds == RECORD_RESULT["duration"]
 
 
 async def test_run_workflow_publishes_a_workflow_failed_notification_event(

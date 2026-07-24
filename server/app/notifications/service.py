@@ -39,6 +39,14 @@ from app.notifications.schemas import (
 
 logger = structlog.get_logger(__name__)
 
+# Telegram Bot API's own hard limit for a bot uploading a file via multipart
+# form data (sendVideo/sendPhoto/sendDocument all share it). Checked against
+# the size already on the SavedMedia row — known without any S3 call — before
+# ever fetching bytes, so an oversized recording fails fast with a clear
+# in-message note rather than pulling tens of megabytes into memory only to
+# have Telegram reject the upload.
+_MAX_VIDEO_ATTACHMENT_BYTES = 50 * 1024 * 1024
+
 # Purely cosmetic: a handful of built-in command types get a friendlier label
 # in a Telegram message than their raw dot-namespaced form. The underlying
 # WorkflowFailed event always carries the real command_type regardless.
@@ -100,9 +108,9 @@ class NotificationService:
         """``database``/``s3_client`` are optional: delivery works without either.
 
         With no database, only the delivery-history log becomes a no-op;
-        with no S3 client, a thumbnail is simply never attached (the
+        with no S3 client, a thumbnail/video is simply never attached (the
         workflow name/times/etc. still send as plain text) — see
-        ``_resolve_photo_bytes``.
+        ``_resolve_object_bytes``.
         """
         self._database = database
         self._providers = list(providers)
@@ -116,6 +124,12 @@ class NotificationService:
             workflow_id=event.workflow_id,
             workflow_name=event.workflow_name,
             thumbnail_object_key=event.thumbnail_object_key,
+            video_object_key=event.video_object_key,
+            video_filename=event.video_filename,
+            video_size_bytes=event.video_size_bytes,
+            video_width=event.video_width,
+            video_height=event.video_height,
+            video_duration_seconds=event.video_duration_seconds,
         )
 
     async def notify_workflow_failed(self, event: WorkflowFailed) -> None:
@@ -126,13 +140,29 @@ class NotificationService:
             workflow_id=event.workflow_id,
             workflow_name=event.workflow_name,
             thumbnail_object_key=event.thumbnail_object_key,
+            video_object_key=event.video_object_key,
+            video_filename=event.video_filename,
+            video_size_bytes=event.video_size_bytes,
+            video_width=event.video_width,
+            video_height=event.video_height,
+            video_duration_seconds=event.video_duration_seconds,
         )
 
     async def send_test_notification(self) -> list[TestNotificationResult]:
         """Send a test message to every registered provider; requires no workflow to run."""
         text = "🔔 Test Notification\n\nThis is a test notification from Sam's Lab."
         outcomes = await self._dispatch(
-            text, event_type="TEST", workflow_id=None, workflow_name=None, thumbnail_object_key=None
+            text,
+            event_type="TEST",
+            workflow_id=None,
+            workflow_name=None,
+            thumbnail_object_key=None,
+            video_object_key=None,
+            video_filename=None,
+            video_size_bytes=None,
+            video_width=None,
+            video_height=None,
+            video_duration_seconds=None,
         )
         return [
             TestNotificationResult(
@@ -169,6 +199,12 @@ class NotificationService:
         workflow_id: UUID | None,
         workflow_name: str | None,
         thumbnail_object_key: str | None,
+        video_object_key: str | None,
+        video_filename: str | None,
+        video_size_bytes: int | None,
+        video_width: int | None,
+        video_height: int | None,
+        video_duration_seconds: int | None,
     ) -> list[tuple[str, NotificationResult]]:
         """Send ``text`` to every registered provider; a provider failure is recorded, never raised.
 
@@ -176,16 +212,45 @@ class NotificationService:
         above, and ``send_test_notification``) goes through — the guarantee
         that a notification failure can never propagate to whatever
         triggered it is enforced here, once, rather than by every caller
-        remembering to catch its own exceptions. The thumbnail (if any) is
-        fetched once here and shared across every provider, rather than each
-        provider re-fetching the same object.
+        remembering to catch its own exceptions. The thumbnail/video (if
+        any) is fetched once here and shared across every provider, rather
+        than each provider re-fetching the same object.
         """
-        photo_bytes = await self._resolve_photo_bytes(thumbnail_object_key)
+        video_bytes: bytes | None = None
+        if video_object_key is not None:
+            if video_size_bytes is not None and video_size_bytes > _MAX_VIDEO_ATTACHMENT_BYTES:
+                text = (
+                    f"{text}\n\n"
+                    f"⚠️ Recording is {video_size_bytes / (1024 * 1024):.0f} MB, over the "
+                    "50 MB limit for attaching it here — open Saved Media in the app to view it."
+                )
+                logger.warning(
+                    "notification_video_too_large_to_attach",
+                    object_key=video_object_key,
+                    size_bytes=video_size_bytes,
+                )
+            else:
+                video_bytes = await self._resolve_object_bytes(
+                    video_object_key, log_event="notification_video_fetch_failed"
+                )
+        # A video takes priority over a thumbnail (see WorkflowApplicationService.
+        # _resolve_notification_media) — thumbnail_object_key is already None
+        # whenever video_object_key is set, so this never fetches both.
+        photo_bytes = await self._resolve_object_bytes(
+            thumbnail_object_key, log_event="notification_thumbnail_fetch_failed"
+        )
         message = NotificationMessage(
             text=text,
             event_type=event_type,
             photo_bytes=photo_bytes,
             photo_filename=f"{workflow_name or 'notification'}.jpg" if photo_bytes else None,
+            video_bytes=video_bytes,
+            video_filename=(video_filename or f"{workflow_name or 'notification'}.mp4")
+            if video_bytes
+            else None,
+            video_width=video_width if video_bytes else None,
+            video_height=video_height if video_bytes else None,
+            video_duration_seconds=video_duration_seconds if video_bytes else None,
         )
         outcomes: list[tuple[str, NotificationResult]] = []
         for provider in self._providers:
@@ -233,29 +298,28 @@ class NotificationService:
             outcomes.append((provider.name, result))
         return outcomes
 
-    async def _resolve_photo_bytes(self, thumbnail_object_key: str | None) -> bytes | None:
-        """Fetch a thumbnail's raw bytes directly from S3 — never a presigned URL.
+    async def _resolve_object_bytes(
+        self, object_key: str | None, *, log_event: str
+    ) -> bytes | None:
+        """Fetch one S3 object's raw bytes directly — never a presigned URL.
 
-        Best-effort: no S3 client configured, no thumbnail on the event, or
-        the fetch itself failing all fall back to the same thing — a
-        text-only message — rather than losing the notification entirely.
-        ``get_object_bytes`` is a real network call (via boto3, which is
-        synchronous), so it runs in the default executor rather than
-        blocking the event loop.
+        Shared by both the thumbnail and video paths in ``_dispatch``; only
+        the log event name differs, so a fetch failure is attributable to
+        the right attachment kind without two near-identical methods.
+        Best-effort: no S3 client configured, no object key on the event, or
+        the fetch itself failing all fall back to the same thing — the
+        message sends without that attachment — rather than losing the
+        notification entirely. ``get_object_bytes`` is a real network call
+        (via boto3, which is synchronous), so it runs in the default
+        executor rather than blocking the event loop.
         """
-        if thumbnail_object_key is None or self._s3_client is None:
+        if object_key is None or self._s3_client is None:
             return None
         try:
             loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(
-                None, self._s3_client.get_object_bytes, thumbnail_object_key
-            )
+            return await loop.run_in_executor(None, self._s3_client.get_object_bytes, object_key)
         except Exception as error:  # pragma: no cover - defensive
-            logger.warning(
-                "notification_thumbnail_fetch_failed",
-                object_key=thumbnail_object_key,
-                error=str(error),
-            )
+            logger.warning(log_event, object_key=object_key, error=str(error))
             return None
 
     async def _record(

@@ -293,3 +293,154 @@ async def test_send_photo_retries_a_server_error_then_succeeds() -> None:
     assert result.success is True
     assert len(calls) == 2
     assert all(call.url.path.endswith("/sendPhoto") for call in calls)
+
+
+# --- sendVideo (recording attachment) ---------------------------------------
+
+
+async def test_send_uses_sendvideo_when_video_bytes_are_present() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    provider = _provider(handler)
+    message = NotificationMessage(
+        text="✅ Workflow Completed\n\nWorkflow: Morning Garden",
+        event_type="WORKFLOW_COMPLETED",
+        video_bytes=b"\x00\x00\x00\x18ftypmp42mp4-bytes",
+        video_filename="recording.mp4",
+    )
+
+    result = await provider.send(message)
+
+    assert result.success is True
+    assert len(requests) == 1
+    request = requests[0]
+    assert request.url.path.endswith("/sendVideo")
+    assert not request.url.path.endswith("/sendMessage")
+    assert request.headers["content-type"].startswith("multipart/form-data")
+    assert b'name="chat_id"' in request.content
+    assert b'name="caption"' in request.content
+    assert b"Morning Garden" in request.content
+    assert b'name="supports_streaming"' in request.content
+    assert b"true" in request.content
+    assert b'name="video"' in request.content
+    assert b"recording.mp4" in request.content
+    assert b"mp4-bytes" in request.content
+
+
+async def test_send_video_includes_width_height_and_duration_hints() -> None:
+    """Without these, Telegram can render its preview at the wrong aspect ratio
+    (observed: stretched) before ever parsing the file's own container metadata."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    provider = _provider(handler)
+    message = NotificationMessage(
+        text="hi",
+        event_type="TEST",
+        video_bytes=b"bytes",
+        video_filename="recording.mp4",
+        video_width=1920,
+        video_height=1080,
+        video_duration_seconds=42,
+    )
+
+    await provider.send(message)
+
+    content = requests[0].content
+    assert b'name="width"' in content
+    assert b"1920" in content
+    assert b'name="height"' in content
+    assert b"1080" in content
+    assert b'name="duration"' in content
+    assert b"42" in content
+
+
+async def test_send_video_omits_dimension_hints_when_unknown() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    provider = _provider(handler)
+    message = NotificationMessage(
+        text="hi", event_type="TEST", video_bytes=b"bytes", video_filename="recording.mp4"
+    )
+
+    await provider.send(message)
+
+    content = requests[0].content
+    assert b'name="width"' not in content
+    assert b'name="height"' not in content
+    assert b'name="duration"' not in content
+
+
+async def test_send_prefers_video_over_photo_when_both_are_somehow_present() -> None:
+    """NotificationService never resolves both for the same event, but a provider
+    should still degrade sensibly (the more complete artifact wins) if it ever did."""
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    provider = _provider(handler)
+    message = NotificationMessage(
+        text="hi",
+        event_type="TEST",
+        photo_bytes=b"\xff\xd8jpeg-bytes",
+        photo_filename="photo.jpg",
+        video_bytes=b"mp4-bytes",
+        video_filename="video.mp4",
+    )
+
+    await provider.send(message)
+
+    assert requests[0].url.path.endswith("/sendVideo")
+
+
+async def test_send_video_truncates_a_caption_over_telegrams_limit() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, json={"ok": True})
+
+    provider = _provider(handler)
+    long_text = "x" * 2000
+    message = NotificationMessage(
+        text=long_text, event_type="TEST", video_bytes=b"bytes", video_filename="video.mp4"
+    )
+
+    await provider.send(message)
+
+    assert (b"x" * 2000) not in requests[0].content
+    assert (b"x" * 1023) in requests[0].content
+
+
+async def test_send_video_retries_a_server_error_then_succeeds() -> None:
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if len(calls) < 2:
+            return httpx.Response(503, text="service unavailable")
+        return httpx.Response(200, json={"ok": True})
+
+    provider = _provider(handler, max_retries=2)
+    message = NotificationMessage(
+        text="hi", event_type="TEST", video_bytes=b"bytes", video_filename="video.mp4"
+    )
+
+    result = await provider.send(message)
+
+    assert result.success is True
+    assert len(calls) == 2
+    assert all(call.url.path.endswith("/sendVideo") for call in calls)

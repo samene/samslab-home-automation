@@ -330,3 +330,97 @@ async def test_notify_workflow_completed_falls_back_to_text_when_the_thumbnail_f
 
     assert provider.sent[0].photo_bytes is None
     assert provider.sent[0].text  # the text message still went out
+
+
+async def test_notify_workflow_completed_attaches_the_recording_as_video_bytes(
+    database: Database,
+) -> None:
+    """No S3 presigned URL is ever minted — a direct GetObject fetch, shared with the provider."""
+    boto_client = FakeBotoS3Client(object_bytes=b"\x00\x00\x00\x18ftypmp42real-mp4-bytes")
+    s3_client = S3Client(client=boto_client, bucket="samslab-media")
+    provider = FakeProvider("telegram")
+    service = NotificationService(database=database, providers=[provider], s3_client=s3_client)
+    event = _completed_event(
+        thumbnail_object_key=None,
+        video_object_key="originals/recording.mp4",
+        video_filename="recording.mp4",
+        video_size_bytes=5_000_000,
+        video_width=1920,
+        video_height=1080,
+        video_duration_seconds=42,
+    )
+
+    await service.notify_workflow_completed(event)
+
+    assert provider.sent[0].video_bytes == b"\x00\x00\x00\x18ftypmp42real-mp4-bytes"
+    assert provider.sent[0].video_filename == "recording.mp4"
+    assert provider.sent[0].video_width == 1920
+    assert provider.sent[0].video_height == 1080
+    assert provider.sent[0].video_duration_seconds == 42
+    assert provider.sent[0].photo_bytes is None
+    assert boto_client.get_calls == [{"Bucket": "samslab-media", "Key": "originals/recording.mp4"}]
+
+
+async def test_notify_workflow_completed_falls_back_to_default_video_filename(
+    database: Database,
+) -> None:
+    boto_client = FakeBotoS3Client(object_bytes=b"mp4-bytes")
+    s3_client = S3Client(client=boto_client, bucket="samslab-media")
+    provider = FakeProvider("telegram")
+    service = NotificationService(database=database, providers=[provider], s3_client=s3_client)
+    event = _completed_event(
+        thumbnail_object_key=None,
+        video_object_key="originals/recording.mp4",
+        video_filename=None,
+        video_size_bytes=5_000_000,
+    )
+
+    await service.notify_workflow_completed(event)
+
+    assert provider.sent[0].video_filename == "Morning Garden.mp4"
+
+
+async def test_notify_workflow_completed_skips_a_video_over_the_telegram_upload_limit(
+    database: Database,
+) -> None:
+    """Checked against the size already on the event — no S3 call for an attachment
+    that Telegram would reject anyway."""
+    boto_client = FakeBotoS3Client(object_bytes=b"should never be fetched")
+    s3_client = S3Client(client=boto_client, bucket="samslab-media")
+    provider = FakeProvider("telegram")
+    service = NotificationService(database=database, providers=[provider], s3_client=s3_client)
+    event = _completed_event(
+        thumbnail_object_key=None,
+        video_object_key="originals/huge-recording.mp4",
+        video_filename="huge-recording.mp4",
+        video_size_bytes=80 * 1024 * 1024,
+    )
+
+    await service.notify_workflow_completed(event)
+
+    assert provider.sent[0].video_bytes is None
+    assert boto_client.get_calls == []
+    assert "80 MB" in provider.sent[0].text
+    assert "50 MB" in provider.sent[0].text
+
+
+async def test_notify_workflow_completed_falls_back_to_text_when_the_video_fetch_fails(
+    database: Database,
+) -> None:
+    """A broken S3 fetch must never lose the notification entirely — text still sends."""
+    boto_client = FakeBotoS3Client(fail=True)
+    s3_client = S3Client(client=boto_client, bucket="samslab-media")
+    provider = FakeProvider("telegram")
+    service = NotificationService(database=database, providers=[provider], s3_client=s3_client)
+
+    await service.notify_workflow_completed(
+        _completed_event(
+            thumbnail_object_key=None,
+            video_object_key="originals/recording.mp4",
+            video_filename="recording.mp4",
+            video_size_bytes=5_000_000,
+        )
+    )
+
+    assert provider.sent[0].video_bytes is None
+    assert provider.sent[0].text  # the text message still went out

@@ -153,15 +153,52 @@ class TelegramProvider:
         )
 
     def _build_request(self, message: NotificationMessage) -> tuple[str, dict[str, Any]]:
-        """``sendPhoto`` (with the text as a caption) when a thumbnail is attached, ``sendMessage`` otherwise.
+        """``sendVideo`` when a recording is attached, ``sendPhoto`` for a thumbnail (both with
+        the text as a caption), ``sendMessage`` otherwise.
 
-        No S3 presigned URL is ever involved: ``message.photo_bytes`` is
-        already-fetched raw image bytes (see
-        ``NotificationService._resolve_photo_bytes``), uploaded to Telegram
+        No S3 presigned URL is ever involved: ``message.video_bytes``/
+        ``photo_bytes`` are already-fetched raw bytes (see
+        ``NotificationService._resolve_object_bytes``), uploaded to Telegram
         directly as multipart form data — Telegram never fetches from S3 at
         all, and no S3 URL (signed or otherwise) is ever generated or sent.
+        Video takes priority over photo, matching
+        ``NotificationService``/``WorkflowApplicationService``, which never
+        resolve both for the same event anyway.
         """
         base = f"{self._config.api_base_url}/bot{self._config.bot_token}"
+        if message.video_bytes is not None:
+            data = {
+                "chat_id": self._config.chat_id,
+                "caption": _truncate_caption(message.text),
+                # These are workflow-captured MP4s meant for viewing,
+                # not arbitrary uploads — let the Telegram client
+                # start playback before the full file has downloaded.
+                "supports_streaming": "true",
+            }
+            # Telegram's own docs recommend these for sendVideo: without
+            # them, a client can render its preview at the wrong aspect
+            # ratio (observed: stretched) before or instead of ever parsing
+            # the file's own container metadata. Already known from
+            # SavedMedia — no extra probing needed.
+            if message.video_width is not None:
+                data["width"] = str(message.video_width)
+            if message.video_height is not None:
+                data["height"] = str(message.video_height)
+            if message.video_duration_seconds is not None:
+                data["duration"] = str(message.video_duration_seconds)
+            return (
+                f"{base}/sendVideo",
+                {
+                    "data": data,
+                    "files": {
+                        "video": (
+                            message.video_filename or "video.mp4",
+                            message.video_bytes,
+                            "video/mp4",
+                        )
+                    },
+                },
+            )
         if message.photo_bytes is not None:
             return (
                 f"{base}/sendPhoto",

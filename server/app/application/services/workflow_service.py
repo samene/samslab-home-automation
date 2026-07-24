@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -88,6 +89,23 @@ def _normalize_utc(value: datetime) -> datetime:
 def _duration_seconds(started_at: datetime, completed_at: datetime) -> float:
     """Mirrors ``app.domains.workflows.service._duration_ms_since`` in float seconds instead of int ms."""
     return (_normalize_utc(completed_at) - _normalize_utc(started_at)).total_seconds()
+
+
+@dataclass(frozen=True, slots=True)
+class _NotificationMedia:
+    """The one piece of media (if any) a run's notification should carry — see
+    ``WorkflowApplicationService._resolve_notification_media``. A video and a
+    thumbnail are mutually exclusive: the video fields are only ever set
+    together, and only when ``thumbnail_object_key`` is ``None``.
+    """
+
+    thumbnail_object_key: str | None
+    video_object_key: str | None
+    video_filename: str | None
+    video_size_bytes: int | None
+    video_width: int | None
+    video_height: int | None
+    video_duration_seconds: int | None
 
 
 class WorkflowApplicationService:
@@ -509,7 +527,7 @@ class WorkflowApplicationService:
                 if status is WorkflowRunStatus.FAILED
                 else None
             )
-            thumbnail_object_key = await self._resolve_thumbnail_object_key(session, run_id)
+            notification_media = await self._resolve_notification_media(session, run_id)
             # Extracted into plain locals before the session (and therefore
             # these ORM objects) closes below.
             workflow_id = run.workflow_id
@@ -529,32 +547,65 @@ class WorkflowApplicationService:
             trigger_source=trigger_source,
             error_message=error_message,
             failed_step=failed_step,
-            thumbnail_object_key=thumbnail_object_key,
+            notification_media=notification_media,
         )
 
-    async def _resolve_thumbnail_object_key(
+    async def _resolve_notification_media(
         self, session: AsyncSession, run_id: UUID
-    ) -> str | None:
-        """Pick the one thumbnail (if any) worth attaching to this run's notification.
+    ) -> _NotificationMedia:
+        """Pick the one piece of media (if any) worth attaching to this run's notification.
 
-        Prefers a snapshot's thumbnail over a video's, and the earliest of
-        several same-type candidates — video thumbnails aren't generated yet
-        (``SavedMedia.thumbnail_object_key`` is always ``None`` for
-        ``MediaType.VIDEO``, see that model's docstring), so today this only
-        ever resolves to something for a ``camera.snapshot`` step, but the
-        preference order is written generically so a future video thumbnail
-        needs no change here.
+        A video recording wins over a snapshot thumbnail, not the other way
+        around: a still preview is a consolation prize for not having the
+        actual recording, and sending a thumbnail *instead of* a video the
+        run actually produced would bury the one artifact an operator most
+        wants to see. Only when the run produced no video does a snapshot's
+        thumbnail get attached at all. Within one kind, the earliest
+        candidate wins ("the first one if multiple") — the two
+        ``camera.record.stop``/``camera.snapshot`` steps in a workflow run
+        serially, so "earliest" and "first step" coincide.
         """
         media_items = await SavedMediaService(
             SavedMediaRepository(session)
         ).find_by_workflow_run_id(run_id)
-        candidates = [media for media in media_items if media.thumbnail_object_key is not None]
-        if not candidates:
-            return None
-        candidates.sort(
-            key=lambda media: (media.media_type is not MediaType.IMAGE, media.created_at)
+        videos = sorted(
+            (media for media in media_items if media.media_type is MediaType.VIDEO),
+            key=lambda media: media.created_at,
         )
-        return candidates[0].thumbnail_object_key
+        if videos:
+            video = videos[0]
+            return _NotificationMedia(
+                thumbnail_object_key=None,
+                video_object_key=video.original_object_key,
+                video_filename=video.filename,
+                video_size_bytes=video.size,
+                video_width=video.width,
+                video_height=video.height,
+                video_duration_seconds=video.duration,
+            )
+        thumbnails = sorted(
+            (media for media in media_items if media.thumbnail_object_key is not None),
+            key=lambda media: media.created_at,
+        )
+        if not thumbnails:
+            return _NotificationMedia(
+                thumbnail_object_key=None,
+                video_object_key=None,
+                video_filename=None,
+                video_size_bytes=None,
+                video_width=None,
+                video_height=None,
+                video_duration_seconds=None,
+            )
+        return _NotificationMedia(
+            thumbnail_object_key=thumbnails[0].thumbnail_object_key,
+            video_object_key=None,
+            video_filename=None,
+            video_size_bytes=None,
+            video_width=None,
+            video_height=None,
+            video_duration_seconds=None,
+        )
 
     async def _resolve_failed_step_label(
         self, service: WorkflowService, run_id: UUID, workflow_id: UUID
@@ -583,7 +634,7 @@ class WorkflowApplicationService:
         trigger_source: str,
         error_message: str | None,
         failed_step: str | None,
-        thumbnail_object_key: str | None,
+        notification_media: _NotificationMedia,
     ) -> None:
         duration_seconds = _duration_seconds(started_at, completed_at)
         try:
@@ -598,7 +649,13 @@ class WorkflowApplicationService:
                         duration_seconds=duration_seconds,
                         status=status.value,
                         trigger_source=trigger_source,
-                        thumbnail_object_key=thumbnail_object_key,
+                        thumbnail_object_key=notification_media.thumbnail_object_key,
+                        video_object_key=notification_media.video_object_key,
+                        video_filename=notification_media.video_filename,
+                        video_size_bytes=notification_media.video_size_bytes,
+                        video_width=notification_media.video_width,
+                        video_height=notification_media.video_height,
+                        video_duration_seconds=notification_media.video_duration_seconds,
                     )
                 )
             else:
@@ -614,7 +671,13 @@ class WorkflowApplicationService:
                         trigger_source=trigger_source,
                         error_message=error_message or "Unknown error",
                         failed_step=failed_step,
-                        thumbnail_object_key=thumbnail_object_key,
+                        thumbnail_object_key=notification_media.thumbnail_object_key,
+                        video_object_key=notification_media.video_object_key,
+                        video_filename=notification_media.video_filename,
+                        video_size_bytes=notification_media.video_size_bytes,
+                        video_width=notification_media.video_width,
+                        video_height=notification_media.video_height,
+                        video_duration_seconds=notification_media.video_duration_seconds,
                     )
                 )
         except Exception as error:

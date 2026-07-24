@@ -31,12 +31,30 @@ class NotificationMessage:
     attaching one to send alongside ``text`` as a caption, instead of a
     plain text-only message. A provider without photo support is free to
     ignore it and always send ``text`` alone.
+
+    ``video_bytes`` is the same idea for a workflow's actual video recording
+    — resolved from an event's ``video_object_key`` the same way, via direct
+    S3 ``GetObject``. Mutually exclusive with ``photo_bytes`` in practice
+    (``NotificationService`` never resolves both for the same event — a
+    recording takes priority over a still preview), but a provider should
+    still prefer ``video_bytes`` if it somehow ever saw both set, since a
+    video is the more complete artifact. ``video_width``/``video_height``/
+    ``video_duration_seconds`` are the recording's own already-known
+    dimensions/length (from ``SavedMedia``, no extra probing) — a provider
+    that accepts them as explicit hints (Telegram's ``sendVideo`` does)
+    should, so a client never has to guess the aspect ratio before it's
+    parsed the file itself.
     """
 
     text: str
     event_type: str
     photo_bytes: bytes | None = None
     photo_filename: str | None = None
+    video_bytes: bytes | None = None
+    video_filename: str | None = None
+    video_width: int | None = None
+    video_height: int | None = None
+    video_duration_seconds: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

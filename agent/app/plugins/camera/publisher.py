@@ -57,14 +57,21 @@ class FfmpegRtspPublisher:
             self._ffmpeg_path,
             "-loglevel",
             "error",
+            # See recorder.py's FfmpegMp4Recorder.start() for the full
+            # reasoning (reproduced there against a real ffmpeg): a declared
+            # `-r {fps}` here asserts frames arrive exactly `1/fps` apart,
+            # which the camera's actual sustained rate doesn't reliably
+            # match. `-use_wallclock_as_timestamps 1` timestamps each frame
+            # by when it was actually read instead, so playback pacing
+            # follows real elapsed time rather than an assumed constant rate.
+            "-use_wallclock_as_timestamps",
+            "1",
             "-f",
             "rawvideo",
             "-pix_fmt",
             "bgr24",
             "-s",
             f"{width}x{height}",
-            "-r",
-            str(fps),
             "-i",
             "-",
             "-c:v",

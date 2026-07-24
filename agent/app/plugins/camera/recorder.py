@@ -24,7 +24,14 @@ class Mp4Recorder(Protocol):
     """Something that accepts raw frames and writes them to a local MP4 file."""
 
     def start(
-        self, *, output_path: Path, width: int, height: int, fps: int, bitrate_kbps: int, preset: str
+        self,
+        *,
+        output_path: Path,
+        width: int,
+        height: int,
+        fps: int,
+        bitrate_kbps: int,
+        preset: str,
     ) -> None:
         """Begin recording to ``output_path``; raise ``CameraUnavailableError`` on failure."""
 
@@ -43,7 +50,14 @@ class FfmpegMp4Recorder:
         self._process: subprocess.Popen[bytes] | None = None
 
     def start(
-        self, *, output_path: Path, width: int, height: int, fps: int, bitrate_kbps: int, preset: str
+        self,
+        *,
+        output_path: Path,
+        width: int,
+        height: int,
+        fps: int,
+        bitrate_kbps: int,
+        preset: str,
     ) -> None:
         if shutil.which(self._ffmpeg_path) is None:
             raise CameraUnavailableError(
@@ -55,14 +69,31 @@ class FfmpegMp4Recorder:
             self._ffmpeg_path,
             "-loglevel",
             "error",
+            # The camera's real, sustained capture rate does not reliably
+            # match `fps` (the configured *target*): on-sensor HDR alone
+            # (enabled around every recording, see sensor_hdr.py) combines
+            # two exposures per output frame, measurably slower than a
+            # single-exposure capture. A declared `-r {fps}` here would tell
+            # ffmpeg to assume frames arrive exactly `1/fps` apart regardless
+            # of when they actually did, silently compressing however much
+            # real time recording actually took into fewer output seconds —
+            # i.e. the finished MP4 plays back faster than it was recorded
+            # (reproduced directly: 60 frames written over a real ~3.1s at an
+            # actual ~20fps encoded as if at a declared 30fps produced a
+            # 2.0s file — a 1.55x speedup, matching what this was reported
+            # against). `-use_wallclock_as_timestamps 1` instead timestamps
+            # each frame by when ffmpeg actually read it from stdin, so the
+            # finished file's duration matches real elapsed time regardless
+            # of what the sustained capture rate actually turns out to be —
+            # self-correcting rather than a tuned guess at a "real" fps.
+            "-use_wallclock_as_timestamps",
+            "1",
             "-f",
             "rawvideo",
             "-pix_fmt",
             "bgr24",
             "-s",
             f"{width}x{height}",
-            "-r",
-            str(fps),
             "-i",
             "-",
             "-c:v",
