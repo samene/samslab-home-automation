@@ -33,7 +33,7 @@ from app.application.services.workflow_run_registry import WorkflowRunRegistry
 from app.application.services.workflow_service import WorkflowApplicationService
 from app.core.database import Database
 from app.core.s3_client import S3Client
-from app.domains.commands.models import Command
+from app.domains.commands.models import Command, CommandStatus
 from app.domains.commands.repository import CommandRepository
 from app.domains.commands.service import CommandService
 from app.domains.devices.repository import DeviceRepository
@@ -333,6 +333,49 @@ async def test_run_workflow_fails_the_run_when_a_command_fails(
     assert detail.latest_run.step_runs[0].status == WorkflowStepRunStatus.FAILED
     # The sleep step never started because the run aborts on first failure.
     assert detail.latest_run.step_runs[1].status == WorkflowStepRunStatus.PENDING
+
+
+async def test_run_workflow_cancels_the_command_when_a_step_times_out(
+    workflow_app_service: WorkflowApplicationService, database: Database, device: DeviceDTO
+) -> None:
+    """Regression test: a timed-out step must cancel its command, not just abandon it.
+
+    Before this fix, only a cancelled *waiting task* (e.g. a parallel
+    sibling's failure) cancelled the underlying Command — a step giving up on
+    its own ``command_timeout_seconds`` left the Command PENDING forever. The
+    dispatcher's discovery has no expiry for a still-PENDING command, so it
+    kept retrying delivery and would still run it on the device (confirmed
+    live with ``camera.record.start``: it executed unattended, long after the
+    workflow had already gone FAILED, with no matching stop ever sent).
+    Leaving the device offline for the whole test (never calling
+    ``_complete_pending_commands``) reproduces exactly that "device
+    reconnects after the run gave up" scenario.
+    """
+    created = await workflow_app_service.create_workflow(
+        WorkflowCreate(
+            name="Runaway recording",
+            steps=[
+                WorkflowStepCreate(
+                    step_type=WorkflowStepType.COMMAND, command_type="camera.record.start"
+                )
+            ],
+        )
+    )
+
+    await workflow_app_service.run_workflow(created.id)
+    detail = await _wait_for_run_terminal(workflow_app_service, created.id, timeout=6.0)
+
+    assert detail.latest_run is not None
+    assert detail.latest_run.status == WorkflowRunStatus.FAILED
+    step_run = detail.latest_run.step_runs[0]
+    assert step_run.status == WorkflowStepRunStatus.FAILED
+    assert step_run.command_id is not None
+
+    async with database.session_factory() as session:
+        command = await CommandService(CommandRepository(session)).get_command(
+            step_run.command_id
+        )
+    assert command.status == CommandStatus.CANCELLED
 
 
 async def test_run_workflow_publishes_a_workflow_completed_notification_event(

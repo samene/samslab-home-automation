@@ -157,7 +157,7 @@ class AgentSettings(BaseSettings):
     # itself is left in place, still uploadable by a subsequent
     # camera.record.stop — this never silently discards a recording.
     camera_record_max_duration_seconds: float = Field(
-        default=1800.0, gt=0, validation_alias="CAMERA_RECORD_MAX_DURATION_SECONDS"
+        default=90.0, gt=0, validation_alias="CAMERA_RECORD_MAX_DURATION_SECONDS"
     )
     # On-sensor HDR (Camera Module 3 / IMX708 only — see
     # app/plugins/camera/sensor_hdr.py), toggled on only around a snapshot's

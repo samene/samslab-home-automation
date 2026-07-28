@@ -1,6 +1,14 @@
 [Unit]
 Description=Sam's Lab Raspberry Pi Agent
-After=network-online.target
+# time-sync.target only actually blocks on a real NTP sync if
+# systemd-time-wait-sync.service is enabled (disabled by default on Raspberry
+# Pi OS) - see docs/agent/AGENT.md. Without this, a device with no
+# battery-backed RTC can start with a badly-wrong clock, which makes every
+# device-token request's signed JWT assertion (iat/exp) look invalid to the
+# server until NTP catches up - confirmed live: ~6 minutes of 401
+# Unauthorized after a reboot, indistinguishable from the agent being stuck
+# offline, until systemd-timesyncd's initial sync landed.
+After=network-online.target time-sync.target
 Wants=network-online.target
 
 [Service]

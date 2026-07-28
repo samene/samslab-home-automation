@@ -372,6 +372,17 @@ class WorkflowApplicationService:
         except asyncio.CancelledError:
             await self._cancel_command(command_id)
             raise
+        except WorkflowStepTimedOutError:
+            # The command is still non-terminal (most commonly still PENDING,
+            # undelivered because the device was offline) — left uncancelled,
+            # the dispatcher's discovery keeps retrying delivery forever with
+            # no expiry, so it can still land on the device long after this
+            # run has already gone FAILED (confirmed live: an orphaned
+            # camera.record.start ran unattended with no matching stop once
+            # connectivity came back). Cancelling here is what stops the
+            # dispatcher from ever picking it up again.
+            await self._cancel_command(command_id)
+            raise
         # Treated exactly like any other completed command — the same
         # shared helper CameraApplicationService.capture_snapshot/
         # stop_recording use, never a media-type-specific branch in this
